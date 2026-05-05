@@ -1,0 +1,20 @@
+listen:
+  bind: "0.0.0.0:9443"
+  public_url: "wss://localhost:9443/supervisor"
+tls:
+  certificate_path: "./certs/relay.crt"
+  private_key_path: "./certs/relay.key"
+  client_ca_path: "./certs/operators-ca.crt"
+trusted_proxy:
+  enabled: false
+  allowed_remote_addrs: []
+  identity_header: "x-verified-client-subject"
+registration:
+  listen_path: /run/rust-supervisor/dashboard-relay-registration.sock
+  permissions: "0600"
+  allowed_ipc_path_prefixes:
+    - /run/rust-supervisor/
+  default_lease_seconds: 30
+  max_lease_seconds: 120
+authorization_defaults:
+  unknown_scope_policy: reject
