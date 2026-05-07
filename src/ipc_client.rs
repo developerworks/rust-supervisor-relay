@@ -17,14 +17,14 @@ use crate::command::{ControlCommandResult, PreparedCommand};
 use crate::error::{RelayError, RelayResult};
 use crate::registry::TargetProcessRegistration;
 
-/// `DashboardSnapshot`(看板快照) 是 relay(中继) 从目标 IPC(进程间通信) 读取并转发的最小快照模型.
+/// `DashboardState`(看板状态) 是 relay(中继) 从目标 IPC(进程间通信) 读取并转发的最小状态模型.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DashboardSnapshot {
+pub struct DashboardState {
     /// `target_id`(目标标识) 是目标进程身份.
     pub target_id: String,
-    /// `snapshot_generation`(快照代次) 是目标进程内单调增长的快照版本.
-    pub snapshot_generation: u64,
-    /// `generated_at`(生成时间) 是快照生成时间.
+    /// `state_generation`(状态代次) 是目标进程内单调增长的状态版本.
+    pub state_generation: u64,
+    /// `generated_at`(生成时间) 是状态生成时间.
     pub generated_at: OffsetDateTime,
     /// `payload`(载荷) 保存目标侧完整监督树和运行时状态.
     pub payload: serde_json::Value,
@@ -32,16 +32,16 @@ pub struct DashboardSnapshot {
 
 /// `TargetIpcPort`(目标进程通信端口) 定义 relay(中继) 需要的可模拟 IPC(进程间通信) 能力.
 pub trait TargetIpcPort {
-    /// 连接目标 IPC(进程间通信) 并读取 snapshot(快照).
+    /// 连接目标 IPC(进程间通信) 并读取 state(状态).
     ///
     /// 参数 `registration` 是目标进程活动注册.
     /// 参数 `now` 是连接时间.
-    /// 返回值是目标进程快照, 或者结构化 IPC(进程间通信) 错误.
-    fn connect_snapshot(
+    /// 返回值是目标进程状态, 或者结构化 IPC(进程间通信) 错误.
+    fn connect_state(
         &self,
         registration: &TargetProcessRegistration,
         now: OffsetDateTime,
-    ) -> RelayResult<DashboardSnapshot>;
+    ) -> RelayResult<DashboardState>;
 
     /// 在目标 IPC(进程间通信) 上建立 event/log subscription(事件日志订阅).
     ///
@@ -76,7 +76,7 @@ pub struct RecordingIpcClient {
 /// `IpcCounters`(进程间通信计数器) 保存一个目标的调用次数.
 #[derive(Debug, Default, Clone, Copy)]
 struct IpcCounters {
-    /// `connects`(连接次数) 是 snapshot(快照) 连接次数.
+    /// `connects`(连接次数) 是 state(状态) 连接次数.
     connects: usize,
     /// `subscriptions`(订阅次数) 是事件日志订阅次数.
     subscriptions: usize,
@@ -165,15 +165,15 @@ impl RecordingIpcClient {
 }
 
 impl TargetIpcPort for RecordingIpcClient {
-    fn connect_snapshot(
+    fn connect_state(
         &self,
         registration: &TargetProcessRegistration,
         now: OffsetDateTime,
-    ) -> RelayResult<DashboardSnapshot> {
+    ) -> RelayResult<DashboardState> {
         self.update(&registration.target_id, |counters| counters.connects += 1);
-        Ok(DashboardSnapshot {
+        Ok(DashboardState {
             target_id: registration.target_id.clone(),
-            snapshot_generation: 1,
+            state_generation: 1,
             generated_at: now,
             payload: json!({
                 "target_id": registration.target_id,

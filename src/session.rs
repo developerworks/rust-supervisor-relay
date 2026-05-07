@@ -12,7 +12,7 @@ use crate::audit::AuditRecorder;
 use crate::auth::RemoteIdentity;
 use crate::command::{ClientCommand, ControlCommandResult, prepare_client_command};
 use crate::error::{RelayError, RelayResult};
-use crate::ipc_client::{DashboardSnapshot, TargetIpcPort};
+use crate::ipc_client::{DashboardState, TargetIpcPort};
 use crate::registry::{ConnectionState, TargetProcessRegistry, VisibleTarget};
 
 /// `TransportSecurity`(传输安全) 表示远程连接的外部协议安全级别.
@@ -95,12 +95,12 @@ pub enum ServerMessage {
         /// `authorization_scopes`(授权范围) 是该 session(会话) 的授权范围.
         authorization_scopes: Vec<String>,
     },
-    /// `Snapshot`(快照) 在目标绑定或重连后发送.
-    Snapshot {
+    /// `State`(状态) 在目标绑定或重连后发送.
+    State {
         /// `target_id`(目标标识) 是目标进程身份.
         target_id: String,
-        /// `snapshot`(快照) 是目标进程当前视图.
-        snapshot: DashboardSnapshot,
+        /// `state`(状态) 是目标进程当前视图.
+        state: DashboardState,
     },
     /// `Event`(事件) 是目标进程主动事件.
     Event {
@@ -243,7 +243,7 @@ impl DashboardSession {
         })
     }
 
-    /// 绑定一个目标进程并触发 IPC(进程间通信) snapshot(快照) 和 subscription(订阅).
+    /// 绑定一个目标进程并触发 IPC(进程间通信) state(状态) 和 subscription(订阅).
     ///
     /// 参数 `target_id` 是目标进程标识.
     /// 参数 `registry` 是可变目标注册表.
@@ -266,21 +266,21 @@ impl DashboardSession {
         }
 
         registry.begin_binding(target_id, now)?;
-        let snapshot = ipc
-            .connect_snapshot(&registration, now)
+        let state = ipc
+            .connect_state(&registration, now)
             .inspect_err(|error| {
                 registry.mark_unavailable(target_id, error.message.clone(), now);
             })?;
-        registry.mark_connected(target_id, snapshot.snapshot_generation, now)?;
+        registry.mark_connected(target_id, state.state_generation, now)?;
         ipc.subscribe_event_log(&registration, now)
             .inspect_err(|error| {
                 registry.mark_unavailable(target_id, error.message.clone(), now);
             })?;
 
         self.bound_targets.insert(target_id.to_owned());
-        self.outbox.push(ServerMessage::Snapshot {
+        self.outbox.push(ServerMessage::State {
             target_id: target_id.to_owned(),
-            snapshot,
+            state,
         });
         self.last_seen_at = now;
         Ok(())

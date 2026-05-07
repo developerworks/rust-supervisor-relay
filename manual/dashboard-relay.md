@@ -10,7 +10,7 @@
 
 远程客户端必须通过 `wss://` 建立连接. 默认模式下, relay(中继) 使用 mTLS(双向传输层安全协议认证) 校验 client certificate(客户端证书). 如果部署在 trusted proxy(可信代理) 后面, relay(中继) 只接受配置内代理地址传入的已验证身份 header(标头). `ws://` 不能建立完整 control session(控制会话).
 
-control session(控制会话) 建立后, relay(中继) 首先发送 `session_established` 消息. 该消息包含 active registration(活动注册) 形成的 target process list(目标进程列表) 和 session(会话) 授权范围. 只有 session(会话) 后续绑定某个授权目标时, relay(中继) 才连接目标 IPC(进程间通信), 读取 snapshot(快照), 建立 event/log subscription(事件日志订阅), 并开始转发 event(事件), log(日志), state delta(状态增量) 和 dropped count(丢弃数量).
+control session(控制会话) 建立后, relay(中继) 首先发送 `session_established` 消息. 该消息包含 active registration(活动注册) 形成的 target process list(目标进程列表) 和 session(会话) 授权范围. 只有 session(会话) 后续绑定某个授权目标时, relay(中继) 才连接目标 IPC(进程间通信), 读取 state(状态), 建立 event/log subscription(事件日志订阅), 并开始转发 event(事件), log(日志), state delta(状态增量) 和 dropped count(丢弃数量).
 
 ## 控制命令
 

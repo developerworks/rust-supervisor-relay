@@ -115,7 +115,7 @@ fn active_registration_only_builds_target_list_before_binding() {
 }
 
 #[test]
-fn authorized_binding_connects_snapshot_and_event_log_subscription_after_session_established() {
+fn authorized_binding_connects_state_and_event_log_subscription_after_session_established() {
     let mut registry = registry_with_two_targets();
     let ipc = RecordingIpcClient::default();
     let mut session = DashboardSession::establish(
@@ -139,12 +139,12 @@ fn authorized_binding_connects_snapshot_and_event_log_subscription_after_session
     assert_eq!(ipc.subscription_count("payments-worker-a"), 1);
     assert!(session.is_bound("payments-worker-a"));
 
-    let snapshot_index = session
+    let state_index = session
         .outbox()
         .iter()
-        .position(|message| matches!(message, ServerMessage::Snapshot { target_id, .. } if target_id == "payments-worker-a"))
-        .expect("snapshot should be sent after binding");
-    assert!(snapshot_index > 0);
+        .position(|message| matches!(message, ServerMessage::State { target_id, .. } if target_id == "payments-worker-a"))
+        .expect("state should be sent after binding");
+    assert!(state_index > 0);
 }
 
 #[test]

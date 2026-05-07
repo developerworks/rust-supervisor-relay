@@ -4,3 +4,12 @@ target/
 .env.*
 *.rs.bk
 .DS_Store
+debug/
+release/
+*.rlib
+*.prof*
+.idea/
+Thumbs.db
+*.tmp
+*.swp
+.vscode/

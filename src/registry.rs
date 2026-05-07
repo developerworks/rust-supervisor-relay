@@ -34,7 +34,7 @@ pub enum ConnectionState {
     Disconnected,
     /// `Connecting`(连接中) 表示已认证 session(会话) 正在触发 IPC(进程间通信) 连接.
     Connecting,
-    /// `Connected`(已连接) 表示 IPC(进程间通信) 握手和 snapshot(快照) 读取成功.
+    /// `Connected`(已连接) 表示 IPC(进程间通信) 握手和 state(状态) 读取成功.
     Connected,
     /// `Reconnecting`(重连中) 表示连接失败后正在重试.
     Reconnecting,
@@ -80,8 +80,8 @@ pub struct TargetProcessConnection {
     pub state: ConnectionState,
     /// `last_error`(最近错误) 保存最近一次结构化错误.
     pub last_error: Option<String>,
-    /// `last_snapshot_generation`(最近快照代次) 保存已发送的 snapshot(快照) 代次.
-    pub last_snapshot_generation: Option<u64>,
+    /// `last_state_generation`(最近状态代次) 保存已发送的 state(状态) 代次.
+    pub last_state_generation: Option<u64>,
     /// `last_sequence`(最近序号) 保存已转发的事件 sequence(序号).
     pub last_sequence: Option<u64>,
     /// `connected_at`(连接时间) 保存最近成功连接时间.
@@ -199,7 +199,7 @@ impl TargetProcessRegistry {
             ipc_path: request.ipc_path,
             state: ConnectionState::Registered,
             last_error: None,
-            last_snapshot_generation: None,
+            last_state_generation: None,
             last_sequence: None,
             connected_at: None,
             updated_at: now,
@@ -368,18 +368,18 @@ impl TargetProcessRegistry {
     /// 标记目标 IPC(进程间通信) 已连接.
     ///
     /// 参数 `target_id` 是目标进程标识.
-    /// 参数 `snapshot_generation` 是连接后读取到的 snapshot(快照) 代次.
+    /// 参数 `state_generation` 是连接后读取到的 state(状态) 代次.
     /// 参数 `now` 是状态变化时间.
     /// 返回值在状态变化成功时为空.
     pub fn mark_connected(
         &mut self,
         target_id: &str,
-        snapshot_generation: u64,
+        state_generation: u64,
         now: OffsetDateTime,
     ) -> RelayResult<()> {
         let connection = self.connection_mut(target_id)?;
         connection.state = ConnectionState::Connected;
-        connection.last_snapshot_generation = Some(snapshot_generation);
+        connection.last_state_generation = Some(state_generation);
         connection.connected_at = Some(now);
         connection.updated_at = now;
         connection.last_error = None;

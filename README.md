@@ -4,7 +4,7 @@
 
 ## 能力边界
 
-本 crate(包) 实现 DashboardRelayConfig(看板中继配置), target process(目标进程) dynamic registration(动态注册), active registration(活动注册), TargetProcessRegistry(目标进程注册表), mTLS(双向传输层安全协议认证) 身份派生, trusted proxy(可信代理) 校验, `wss://` 入口配置和 TLS(传输层安全协议) listener(监听器) 启动骨架. 它只在 authenticated client session(已认证客户端会话) 建立并绑定目标后, 才连接目标 IPC(进程间通信), 读取 snapshot(快照), 建立 event/log subscription(事件日志订阅), 并允许 command forwarding(命令转发).
+本 crate(包) 实现 DashboardRelayConfig(看板中继配置), target process(目标进程) dynamic registration(动态注册), active registration(活动注册), TargetProcessRegistry(目标进程注册表), mTLS(双向传输层安全协议认证) 身份派生, trusted proxy(可信代理) 校验, `wss://` 入口配置和 TLS(传输层安全协议) listener(监听器) 启动骨架. 它只在 authenticated client session(已认证客户端会话) 建立并绑定目标后, 才连接目标 IPC(进程间通信), 读取 state(状态), 建立 event/log subscription(事件日志订阅), 并允许 command forwarding(命令转发).
 
 目标 IPC(进程间通信) 第一版使用 Unix domain socket(Unix 域套接字) 加 newline-delimited JSON(按行分隔的 JSON 数据). `RecordingIpcClient`(记录型进程间通信客户端) 用于测试 session gating(会话门控), `UnixNdjsonIpcClient`(Unix 按行 JSON 进程间通信客户端) 提供真实 socket(套接字) 请求响应函数.
 
