@@ -1,7 +1,7 @@
 //! config(配置) 模块定义 relay(中继) 的 YAML(配置文件格式) 输入和安全校验.
 //!
 //! relay(中继) 配置只描述 `wss://` 监听, mTLS(双向传输层安全协议认证), trusted proxy(可信代理),
-//! registration(注册) 入口和授权默认规则. 目标进程列表必须通过 dynamic registration(动态注册) 进入运行时.
+//! registration(注册) 入口和租约规则. 目标进程列表必须通过 dynamic registration(动态注册) 进入运行时.
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -37,8 +37,6 @@ use crate::error::{RelayError, RelayResult};
 ///     - /run/rust-supervisor/
 ///   default_lease_seconds: 30
 ///   max_lease_seconds: 120
-/// authorization_defaults:
-///   unknown_scope_policy: reject
 /// "#;
 ///
 /// let config = DashboardRelayConfig::from_yaml_str(yaml).unwrap();
@@ -55,8 +53,6 @@ pub struct DashboardRelayConfig {
     pub trusted_proxy: TrustedProxyConfig,
     /// `registration`(注册) 保存目标进程注册入口和租约策略.
     pub registration: RegistrationPolicy,
-    /// `authorization_defaults`(授权默认规则) 保存未知授权范围的处理方式.
-    pub authorization_defaults: AuthorizationDefaults,
 }
 
 impl DashboardRelayConfig {
@@ -354,20 +350,4 @@ impl RegistrationPolicy {
                 .iter()
                 .any(|prefix| ipc_path.starts_with(prefix))
     }
-}
-
-/// `AuthorizationDefaults`(授权默认规则) 保存未知 scope(授权范围) 的处理方式.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct AuthorizationDefaults {
-    /// `unknown_scope_policy`(未知授权范围策略) 决定无法识别 scope(授权范围) 时是否拒绝.
-    pub unknown_scope_policy: UnknownScopePolicy,
-}
-
-/// `UnknownScopePolicy`(未知授权范围策略) 表达未知 scope(授权范围) 的处理方式.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum UnknownScopePolicy {
-    /// `Reject`(拒绝) 是第一版的默认安全策略.
-    Reject,
 }

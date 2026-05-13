@@ -52,6 +52,22 @@ impl ControlCommandName {
         }
     }
 
+    /// 返回命令在 wire(传输层) 中使用的稳定名称.
+    ///
+    /// 参数为空, 因为名称只依赖当前枚举值.
+    /// 返回值是命令名称.
+    pub fn wire_name(self) -> &'static str {
+        match self {
+            Self::RestartChild => "restart_child",
+            Self::PauseChild => "pause_child",
+            Self::ResumeChild => "resume_child",
+            Self::QuarantineChild => "quarantine_child",
+            Self::RemoveChild => "remove_child",
+            Self::AddChild => "add_child",
+            Self::ShutdownTree => "shutdown_tree",
+        }
+    }
+
     /// 判断命令是否需要二次确认.
     ///
     /// 参数为空, 因为判断只读取当前命令枚举.
@@ -76,6 +92,8 @@ pub struct CommandTarget {
 pub struct ClientCommand {
     /// `command_id`(命令标识) 是客户端生成的幂等标识.
     pub command_id: String,
+    /// `correlation_id`(关联标识) 只用于链路追踪或 UI(用户界面) 展示.
+    pub correlation_id: Option<String>,
     /// `target_id`(目标标识) 是目标进程身份.
     pub target_id: String,
     /// `command`(命令) 是允许的控制命令名称.
@@ -95,6 +113,8 @@ pub struct ClientCommand {
 pub struct PreparedCommand {
     /// `command_id`(命令标识) 是客户端生成的幂等标识.
     pub command_id: String,
+    /// `correlation_id`(关联标识) 只用于链路追踪或 UI(用户界面) 展示.
+    pub correlation_id: Option<String>,
     /// `target_id`(目标标识) 是目标进程身份.
     pub target_id: String,
     /// `command`(命令) 是允许的控制命令名称.
@@ -116,6 +136,8 @@ pub struct PreparedCommand {
 pub struct ControlCommandResult {
     /// `command_id`(命令标识) 是客户端命令标识.
     pub command_id: String,
+    /// `correlation_id`(关联标识) 只用于链路追踪或 UI(用户界面) 展示.
+    pub correlation_id: Option<String>,
     /// `target_id`(目标标识) 是目标进程身份.
     pub target_id: String,
     /// `accepted`(是否接受) 表示目标进程是否接受命令.
@@ -139,6 +161,16 @@ pub fn prepare_client_command(
     identity: &RemoteIdentity,
     now: OffsetDateTime,
 ) -> RelayResult<PreparedCommand> {
+    if command.command_id.trim().is_empty() {
+        return Err(RelayError::for_target(
+            "invalid_message_schema",
+            "command_validate",
+            command.target_id,
+            "command_id must not be empty",
+            false,
+        ));
+    }
+
     if command.requested_by.is_some() {
         return Err(RelayError::for_target(
             "requested_by_override",
@@ -171,6 +203,7 @@ pub fn prepare_client_command(
 
     Ok(PreparedCommand {
         command_id: command.command_id,
+        correlation_id: command.correlation_id,
         target_id: command.target_id,
         command: command.command,
         target: command.target,

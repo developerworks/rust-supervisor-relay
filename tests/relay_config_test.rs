@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use rust_supervisor_relay::config::DashboardRelayConfig;
-use rust_supervisor_relay::registration::RegistrationRequest;
+use rust_supervisor_relay::registration::{RegistrationRequest, SupportedCommand};
 use rust_supervisor_relay::registry::TargetProcessRegistry;
 use time::OffsetDateTime;
 
@@ -26,24 +26,21 @@ registration:
     - /run/rust-supervisor/
   default_lease_seconds: 30
   max_lease_seconds: 120
-authorization_defaults:
-  unknown_scope_policy: reject
 "#
     )
 }
 
 fn registration(
     target_id: &str,
-    ipc_path: &str,
-    scope: &str,
+    ipc_path: impl Into<std::path::PathBuf>,
     lease_seconds: u64,
 ) -> RegistrationRequest {
     RegistrationRequest {
         target_id: target_id.to_owned(),
         display_name: format!("{target_id} display"),
         ipc_path: ipc_path.into(),
-        authorization_scope: scope.to_owned(),
         lease_seconds,
+        supported_commands: vec![SupportedCommand::new("restart_child", false, 30)],
     }
 }
 
@@ -89,10 +86,15 @@ fn config_rejects_ws_public_url_and_empty_ipc_prefixes() {
 }
 
 #[test]
-fn registry_rejects_duplicate_target_duplicate_ipc_invalid_scope_and_invalid_lease() {
-    let config =
-        DashboardRelayConfig::from_yaml_str(&relay_yaml("wss://localhost:9443/supervisor"))
-            .expect("config should parse");
+fn registry_allows_owner_upsert_and_rejects_ipc_conflict_and_invalid_lease() {
+    let dir = tempfile::tempdir().expect("temporary directory should exist");
+    let config = DashboardRelayConfig::from_yaml_str(
+        &relay_yaml("wss://localhost:9443/supervisor").replace(
+            "    - /run/rust-supervisor/\n",
+            &format!("    - {}\n", dir.path().display()),
+        ),
+    )
+    .expect("config should parse");
     config.validate().expect("config should validate");
 
     let mut registry = TargetProcessRegistry::new(config.registration.clone());
@@ -102,61 +104,48 @@ fn registry_rejects_duplicate_target_duplicate_ipc_invalid_scope_and_invalid_lea
         .register(
             registration(
                 "payments-worker-a",
-                "/run/rust-supervisor/payments-worker-a.sock",
-                "payments:operate",
+                dir.path().join("payments-worker-a.sock"),
                 30,
             ),
+            "uid:501",
             now,
         )
         .expect("first registration should pass");
 
-    let duplicate_target = registry
+    let updated_target = registry
         .register(
             registration(
                 "payments-worker-a",
-                "/run/rust-supervisor/payments-worker-b.sock",
-                "payments:operate",
-                30,
+                dir.path().join("payments-worker-b.sock"),
+                60,
             ),
+            "uid:501",
             now,
         )
-        .expect_err("duplicate target id should be rejected");
-    assert_eq!(duplicate_target.code, "duplicate_target_id");
+        .expect("same owner target id should upsert");
+    assert_eq!(updated_target.lease_seconds, 60);
 
-    let duplicate_path = registry
+    let conflicting_path = registry
         .register(
             registration(
                 "payments-worker-b",
-                "/run/rust-supervisor/payments-worker-a.sock",
-                "payments:operate",
+                dir.path().join("payments-worker-b.sock"),
                 30,
             ),
+            "uid:501",
             now,
         )
-        .expect_err("duplicate IPC path should be rejected");
-    assert_eq!(duplicate_path.code, "duplicate_ipc_path");
-
-    let empty_scope = registry
-        .register(
-            registration(
-                "payments-worker-c",
-                "/run/rust-supervisor/payments-worker-c.sock",
-                "",
-                30,
-            ),
-            now,
-        )
-        .expect_err("empty scope should be rejected");
-    assert_eq!(empty_scope.code, "empty_authorization_scope");
+        .expect_err("same IPC path should be rejected for another target");
+    assert_eq!(conflicting_path.code, "ipc_path_conflict");
 
     let invalid_lease = registry
         .register(
             registration(
                 "payments-worker-d",
-                "/run/rust-supervisor/payments-worker-d.sock",
-                "payments:operate",
+                dir.path().join("payments-worker-d.sock"),
                 0,
             ),
+            "uid:501",
             now,
         )
         .expect_err("invalid lease should be rejected");

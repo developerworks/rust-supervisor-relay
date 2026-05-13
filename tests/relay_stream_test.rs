@@ -3,7 +3,7 @@ mod support;
 use rust_supervisor_relay::auth::RemoteIdentity;
 use rust_supervisor_relay::config::DashboardRelayConfig;
 use rust_supervisor_relay::ipc_client::UnixNdjsonIpcClient;
-use rust_supervisor_relay::registration::RegistrationRequest;
+use rust_supervisor_relay::registration::{RegistrationRequest, SupportedCommand};
 use rust_supervisor_relay::registry::TargetProcessRegistry;
 use rust_supervisor_relay::relay::RelayHub;
 use rust_supervisor_relay::session::{DashboardSession, ServerMessage, TransportSecurity};
@@ -37,8 +37,6 @@ registration:
     - {}
   default_lease_seconds: 30
   max_lease_seconds: 120
-authorization_defaults:
-  unknown_scope_policy: reject
 "#,
         target.allowed_prefix().display()
     ))
@@ -51,9 +49,10 @@ authorization_defaults:
                 "payments-worker-a",
                 "payments worker a",
                 target.path(),
-                "payments:operate",
                 30,
+                vec![SupportedCommand::new("restart_child", false, 30)],
             ),
+            "uid:501",
             now,
         )
         .expect("registration should pass");
@@ -61,7 +60,6 @@ authorization_defaults:
         "CN=operator@example.test",
         "CN=operators-ca",
         "01",
-        vec!["payments:operate".to_owned()],
         now,
         now + time::Duration::hours(1),
         now,

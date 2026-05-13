@@ -3,14 +3,15 @@
 //! 注册只把目标放入可见列表. 只有已认证 session(会话) 绑定目标后, 才允许进入 IPC(进程间通信) 连接.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
 
+use crate::command::ControlCommandName;
 use crate::config::RegistrationPolicy;
 use crate::error::{RelayError, RelayResult};
-use crate::registration::RegistrationRequest;
+use crate::registration::{RegistrationRequest, SupportedCommand};
 
 /// `RegistrationState`(注册状态) 表示目标进程注册租约的状态.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,10 +54,14 @@ pub struct TargetProcessRegistration {
     pub display_name: String,
     /// `ipc_path`(进程间通信路径) 是目标进程本机 socket(套接字) 路径.
     pub ipc_path: PathBuf,
-    /// `authorization_scope`(授权范围) 是访问该目标需要的 scope(授权范围).
-    pub authorization_scope: String,
+    /// `ipc_path_key`(进程间通信路径键) 是规范化后的冲突检测键.
+    pub ipc_path_key: String,
+    /// `owner_identity`(所有者身份) 是提交注册的本机进程身份.
+    pub owner_identity: String,
     /// `lease_seconds`(租约秒数) 是注册有效期.
     pub lease_seconds: u64,
+    /// `supported_commands`(支持的命令) 是 target(目标) 声明可执行的命令集合.
+    pub supported_commands: Vec<SupportedCommand>,
     /// `registered_at`(注册时间) 是首次进入注册表的时间.
     pub registered_at: OffsetDateTime,
     /// `renewed_at`(续约时间) 是最近一次续约时间.
@@ -101,8 +106,8 @@ pub struct VisibleTarget {
     pub registration_state: RegistrationState,
     /// `connection_state`(连接状态) 表达 relay(中继) 是否已经连接 IPC(进程间通信).
     pub connection_state: ConnectionState,
-    /// `authorization_scope`(授权范围) 是访问该目标需要的 scope(授权范围).
-    pub authorization_scope: String,
+    /// `supported_commands`(支持的命令) 是 target(目标) 声明可执行的命令集合.
+    pub supported_commands: Vec<SupportedCommand>,
 }
 
 /// `AvailabilitySummary`(可用性汇总) 保存多目标 partial availability(部分可用) 状态.
@@ -148,37 +153,45 @@ impl TargetProcessRegistry {
     /// 注册一个目标进程.
     ///
     /// 参数 `request` 是目标进程提交的 dynamic registration(动态注册) 请求.
+    /// 参数 `owner_identity` 是提交注册的本机进程身份.
     /// 参数 `now` 是 relay(中继) 接收注册的时间.
     /// 返回值是活动注册记录, 或者结构化拒绝错误.
     pub fn register(
         &mut self,
         request: RegistrationRequest,
+        owner_identity: impl Into<String>,
         now: OffsetDateTime,
     ) -> RelayResult<TargetProcessRegistration> {
         self.validate_request(&request)?;
+        let owner_identity = owner_identity.into();
+        let ipc_path_key = normalize_ipc_path_key(&request.ipc_path)?;
 
-        if self.registrations.contains_key(&request.target_id) {
-            return Err(RelayError::for_target(
-                "duplicate_target_id",
+        if let Some(existing) = self.registrations.get(&request.target_id) {
+            if existing.owner_identity != owner_identity {
+                return Err(RelayError::for_target(
+                    "target_id_owner_mismatch",
+                    "registration",
+                    request.target_id,
+                    "target id is owned by another supervisor identity",
+                    false,
+                ));
+            }
+        }
+
+        if self.registrations.iter().any(|(target_id, registration)| {
+            target_id != &request.target_id && registration.ipc_path_key == ipc_path_key
+        }) {
+            return Err(RelayError::new(
+                "ipc_path_conflict",
                 "registration",
-                request.target_id,
-                "target id is already registered",
+                None,
+                "ipc path is already used by another target",
                 false,
             ));
         }
 
-        if self
-            .registrations
-            .values()
-            .any(|registration| registration.ipc_path == request.ipc_path)
-        {
-            return Err(RelayError::new(
-                "duplicate_ipc_path",
-                "registration",
-                None,
-                "IPC path is already registered",
-                false,
-            ));
+        if self.registrations.contains_key(&request.target_id) {
+            return self.upsert_existing_registration(request, owner_identity, ipc_path_key, now);
         }
 
         let expires_at = now + Duration::seconds(request.lease_seconds as i64);
@@ -186,8 +199,10 @@ impl TargetProcessRegistry {
             target_id: request.target_id.clone(),
             display_name: request.display_name,
             ipc_path: request.ipc_path.clone(),
-            authorization_scope: request.authorization_scope,
+            ipc_path_key,
+            owner_identity,
             lease_seconds: request.lease_seconds,
+            supported_commands: request.supported_commands,
             registered_at: now,
             renewed_at: now,
             expires_at,
@@ -209,6 +224,54 @@ impl TargetProcessRegistry {
             .insert(request.target_id.clone(), connection);
         self.registrations
             .insert(request.target_id, registration.clone());
+        Ok(registration)
+    }
+
+    fn upsert_existing_registration(
+        &mut self,
+        request: RegistrationRequest,
+        owner_identity: String,
+        ipc_path_key: String,
+        now: OffsetDateTime,
+    ) -> RelayResult<TargetProcessRegistration> {
+        let existing = self.registrations.get(&request.target_id).ok_or_else(|| {
+            RelayError::for_target(
+                "target_not_registered",
+                "registration",
+                request.target_id.clone(),
+                "target is not registered",
+                true,
+            )
+        })?;
+        let path_changed = existing.ipc_path_key != ipc_path_key;
+        let registered_at = existing.registered_at;
+        let expires_at = now + Duration::seconds(request.lease_seconds as i64);
+        let registration = TargetProcessRegistration {
+            target_id: request.target_id.clone(),
+            display_name: request.display_name,
+            ipc_path: request.ipc_path.clone(),
+            ipc_path_key,
+            owner_identity,
+            lease_seconds: request.lease_seconds,
+            supported_commands: request.supported_commands,
+            registered_at,
+            renewed_at: now,
+            expires_at,
+            registration_state: RegistrationState::Active,
+            last_rejection: None,
+        };
+
+        if let Some(connection) = self.connections.get_mut(&request.target_id) {
+            connection.ipc_path = request.ipc_path;
+            connection.updated_at = now;
+            if path_changed {
+                connection.state = ConnectionState::Reconnecting;
+                connection.last_error = Some("ipc_path_changed".to_owned());
+                connection.connected_at = None;
+            }
+        }
+        self.registrations
+            .insert(request.target_id.clone(), registration.clone());
         Ok(registration)
     }
 
@@ -268,22 +331,16 @@ impl TargetProcessRegistry {
             .count()
     }
 
-    /// 根据授权范围返回可见目标.
+    /// 返回当前活动目标.
     ///
-    /// 参数 `authorization_scopes` 是 session(会话) 拥有的授权范围.
     /// 参数 `now` 是当前时间.
-    /// 返回值是该 session(会话) 可以看到的活动目标列表.
-    pub fn visible_targets_for_scopes(
-        &self,
-        authorization_scopes: &[String],
-        now: OffsetDateTime,
-    ) -> Vec<VisibleTarget> {
+    /// 返回值是当前 session(会话) 自动绑定的活动目标列表.
+    pub fn active_targets(&self, now: OffsetDateTime) -> Vec<VisibleTarget> {
         self.registrations
             .values()
             .filter(|registration| {
                 registration.registration_state == RegistrationState::Active
                     && registration.expires_at > now
-                    && authorization_scopes.contains(&registration.authorization_scope)
             })
             .map(|registration| VisibleTarget {
                 target_id: registration.target_id.clone(),
@@ -294,7 +351,7 @@ impl TargetProcessRegistry {
                     .get(&registration.target_id)
                     .map(|connection| connection.state)
                     .unwrap_or(ConnectionState::Unavailable),
-                authorization_scope: registration.authorization_scope.clone(),
+                supported_commands: registration.supported_commands.clone(),
             })
             .collect()
     }
@@ -315,42 +372,55 @@ impl TargetProcessRegistry {
         })
     }
 
-    /// 判断 session(会话) 是否有权限访问目标.
+    /// 判断目标是否处于活动状态.
     ///
     /// 参数 `target_id` 是目标进程标识.
-    /// 参数 `authorization_scopes` 是 session(会话) 拥有的授权范围.
     /// 参数 `now` 是当前时间.
-    /// 返回值在目标活动且 scope(授权范围) 匹配时为成功.
-    pub fn ensure_authorized(
-        &self,
-        target_id: &str,
-        authorization_scopes: &[String],
-        now: OffsetDateTime,
-    ) -> RelayResult<()> {
+    /// 返回值在目标活动时为成功.
+    pub fn ensure_target_active(&self, target_id: &str, now: OffsetDateTime) -> RelayResult<()> {
         let registration = self.registration(target_id)?;
         if registration.registration_state != RegistrationState::Active
             || registration.expires_at <= now
         {
             return Err(RelayError::for_target(
-                "target_registration_expired",
-                "authorization",
+                "target_unavailable",
+                "registry",
                 target_id,
                 "target registration is not active",
                 true,
             ));
         }
 
-        if !authorization_scopes.contains(&registration.authorization_scope) {
-            return Err(RelayError::for_target(
-                "unauthorized_target",
-                "authorization",
-                target_id,
-                "remote identity does not have target authorization scope",
-                false,
-            ));
+        Ok(())
+    }
+
+    /// 判断目标是否声明支持指定命令.
+    ///
+    /// 参数 `target_id` 是目标进程标识.
+    /// 参数 `command` 是控制命令名称.
+    /// 返回值在命令受支持时为成功.
+    pub fn ensure_command_supported(
+        &self,
+        target_id: &str,
+        command: ControlCommandName,
+    ) -> RelayResult<()> {
+        let registration = self.registration(target_id)?;
+        let command_name = command.wire_name();
+        if registration
+            .supported_commands
+            .iter()
+            .any(|supported| supported.name == command_name)
+        {
+            return Ok(());
         }
 
-        Ok(())
+        Err(RelayError::for_target(
+            "unsupported_command",
+            "command_validate",
+            target_id,
+            "target does not declare support for this command",
+            false,
+        ))
     }
 
     /// 标记目标开始绑定 IPC(进程间通信).
@@ -506,16 +576,6 @@ impl TargetProcessRegistry {
             ));
         }
 
-        if request.authorization_scope.trim().is_empty() {
-            return Err(RelayError::for_target(
-                "empty_authorization_scope",
-                "registration",
-                request.target_id.clone(),
-                "authorization scope must not be empty",
-                false,
-            ));
-        }
-
         if request.lease_seconds == 0 || request.lease_seconds > self.policy.max_lease_seconds {
             return Err(RelayError::for_target(
                 "invalid_lease_seconds",
@@ -524,6 +584,18 @@ impl TargetProcessRegistry {
                 "lease seconds must be positive and must not exceed policy max",
                 false,
             ));
+        }
+
+        for command in &request.supported_commands {
+            if command.name.trim().is_empty() || command.timeout_seconds == 0 {
+                return Err(RelayError::for_target(
+                    "unsupported_command_schema",
+                    "registration",
+                    request.target_id.clone(),
+                    "supported command name and timeout must be valid",
+                    false,
+                ));
+            }
         }
 
         Ok(())
@@ -544,4 +616,50 @@ impl TargetProcessRegistry {
             )
         })
     }
+}
+
+fn normalize_ipc_path_key(path: &Path) -> RelayResult<String> {
+    if path
+        .symlink_metadata()
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(RelayError::new(
+            "invalid_ipc_path",
+            "registration",
+            None,
+            "ipc path must not be a symlink",
+            false,
+        ));
+    }
+
+    let parent = path.parent().ok_or_else(|| {
+        RelayError::new(
+            "invalid_ipc_path",
+            "registration",
+            None,
+            "ipc path must have a parent directory",
+            false,
+        )
+    })?;
+    let file_name = path.file_name().ok_or_else(|| {
+        RelayError::new(
+            "invalid_ipc_path",
+            "registration",
+            None,
+            "ipc path must have a file name",
+            false,
+        )
+    })?;
+    let parent = parent.canonicalize().map_err(|error| {
+        RelayError::new(
+            "invalid_ipc_path",
+            "registration",
+            None,
+            format!("ipc path parent could not be normalized: {error}"),
+            false,
+        )
+    })?;
+
+    Ok(parent.join(file_name).display().to_string())
 }

@@ -143,6 +143,11 @@ impl TargetIpcPort for UnixNdjsonIpcClient {
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or(&command.command_id)
                 .to_owned(),
+            correlation_id: command_result
+                .get("correlation_id")
+                .and_then(serde_json::Value::as_str)
+                .map(ToOwned::to_owned)
+                .or_else(|| command.correlation_id.clone()),
             target_id: command_result
                 .get("target_id")
                 .and_then(serde_json::Value::as_str)
@@ -305,6 +310,7 @@ impl UnixNdjsonIpcClient {
                 "method": command_method(command.command),
                 "params": {
                     "command_id": command.command_id,
+                    "correlation_id": command.correlation_id,
                     "target_id": command.target_id,
                     "target": {
                         "child_path": command.target.child_path

@@ -10,7 +10,7 @@
 
 远程客户端必须通过 `wss://` 建立连接. 默认模式下, relay(中继) 使用 mTLS(双向传输层安全协议认证) 校验 client certificate(客户端证书). 如果部署在 trusted proxy(可信代理) 后面, relay(中继) 只接受配置内代理地址传入的已验证身份 header(标头). `ws://` 不能建立完整 control session(控制会话).
 
-control session(控制会话) 建立后, relay(中继) 首先发送 `session_established` 消息. 该消息包含 active registration(活动注册) 形成的 target process list(目标进程列表) 和 session(会话) 授权范围. 只有 session(会话) 后续绑定某个授权目标时, relay(中继) 才连接目标 IPC(进程间通信), 读取 state(状态), 建立 event/log subscription(事件日志订阅), 并开始转发 event(事件), log(日志), state delta(状态增量) 和 dropped count(丢弃数量).
+control session(控制会话) 建立时, relay(中继) 首先发送 `server_hello` 消息. 客户端必须随后发送 `client_hello`, 并提交 `client_store_id` 和 `resume_cursor`. `client_hello` 校验成功后, relay(中继) 发送 active registration(活动注册) 形成的 target process list(目标进程列表), 并在当前阶段自动绑定全部 active target(活跃目标). relay(中继) 绑定目标后才连接目标 IPC(进程间通信), 读取 state(状态), 建立 event/log subscription(事件日志订阅), 并开始转发 event(事件), log(日志), state delta(状态增量) 和 dropped count(丢弃数量).
 
 ## 控制命令
 
@@ -20,7 +20,7 @@ relay(中继) 只接受 `restart_child`, `pause_child`, `resume_child`, `quarant
 
 ## 诊断
 
-relay(中继) 对以下路径返回结构化错误: invalid public url(无效公开地址), missing client CA(缺少客户端证书颁发机构), empty allowed IPC path prefixes(空进程间通信路径前缀), duplicate target id(重复目标标识), duplicate IPC path(重复进程间通信路径), invalid lease(无效租约), untrusted proxy(不可信代理), insecure transport(不安全传输), unauthorized target(未授权目标), target not bound(目标未绑定), sequence not monotonic(序号不单调), reconnect timeout(重连超时), requested_by override(请求者覆盖) 和 unsupported method(不支持的方法).
+relay(中继) 对以下路径返回结构化错误: invalid public url(无效公开地址), missing client CA(缺少客户端证书颁发机构), empty allowed IPC path prefixes(空进程间通信路径前缀), duplicate target id(重复目标标识), duplicate IPC path(重复进程间通信路径), invalid lease(无效租约), untrusted proxy(不可信代理), insecure transport(不安全传输), target unavailable(目标不可用), target not bound(目标未绑定), sequence not monotonic(序号不单调), reconnect timeout(重连超时), requested_by override(请求者覆盖) 和 unsupported method(不支持的方法).
 
 ## 命令
 

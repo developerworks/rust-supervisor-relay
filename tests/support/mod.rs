@@ -107,8 +107,7 @@ fn response_for(request: serde_json::Value) -> serde_json::Value {
                 "state": {
                     "target": {
                         "target_id": params.get("target_id").and_then(serde_json::Value::as_str).unwrap_or("payments-worker-a"),
-                        "display_name": "payments worker a",
-                        "authorization_scope": "payments:operate"
+                        "display_name": "payments worker a"
                     },
                     "topology": {"root": {"path": "/root"}},
                     "runtime_state": [],

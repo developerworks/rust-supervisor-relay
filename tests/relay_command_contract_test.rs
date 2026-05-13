@@ -10,7 +10,6 @@ fn identity() -> RemoteIdentity {
         "CN=operator@example.test",
         "CN=operators-ca",
         "01",
-        vec!["payments:operate".to_owned()],
         OffsetDateTime::UNIX_EPOCH,
         OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1),
         OffsetDateTime::UNIX_EPOCH,
@@ -21,6 +20,7 @@ fn identity() -> RemoteIdentity {
 fn command(command: ControlCommandName, confirmed: bool, reason: &str) -> ClientCommand {
     ClientCommand {
         command_id: format!("{command:?}-cmd"),
+        correlation_id: None,
         target_id: "payments-worker-a".to_owned(),
         command,
         target: CommandTarget {

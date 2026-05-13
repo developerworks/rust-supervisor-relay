@@ -16,5 +16,3 @@ registration:
     - /run/rust-supervisor/
   default_lease_seconds: 30
   max_lease_seconds: 120
-authorization_defaults:
-  unknown_scope_policy: reject

@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 
 use crate::config::TrustedProxyConfig;
@@ -33,16 +34,18 @@ pub enum IdentitySource {
 ///     "CN=operator@example.test",
 ///     "CN=operators-ca",
 ///     "01",
-///     vec!["ops:read".to_owned()],
 ///     OffsetDateTime::UNIX_EPOCH,
 ///     OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1),
 ///     OffsetDateTime::UNIX_EPOCH,
 /// ).unwrap();
 ///
 /// assert_eq!(identity.principal, "CN=operator@example.test");
+/// assert!(identity.client_identity.starts_with("mtls_cert_fingerprint:"));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteIdentity {
+    /// `client_identity`(客户端身份) 是 relay(中继) 派生的稳定客户端键.
+    pub client_identity: String,
     /// `subject`(主体) 是证书主体或代理传入的已验证主体.
     pub subject: String,
     /// `issuer`(签发者) 是证书签发者, 代理模式使用 trusted-proxy(可信代理) 标记.
@@ -57,8 +60,6 @@ pub struct RemoteIdentity {
     pub not_before: OffsetDateTime,
     /// `not_after`(失效时间) 是身份有效期结束时间.
     pub not_after: OffsetDateTime,
-    /// `authorization_scopes`(授权范围) 是该身份可以访问的 scope(授权范围).
-    pub authorization_scopes: Vec<String>,
 }
 
 impl RemoteIdentity {
@@ -67,7 +68,6 @@ impl RemoteIdentity {
     /// 参数 `subject` 是证书主体.
     /// 参数 `issuer` 是证书签发者.
     /// 参数 `serial_number` 是证书序列号.
-    /// 参数 `authorization_scopes` 是身份授权范围.
     /// 参数 `not_before` 是证书生效时间.
     /// 参数 `not_after` 是证书失效时间.
     /// 参数 `now` 是校验时间.
@@ -76,12 +76,13 @@ impl RemoteIdentity {
         subject: impl Into<String>,
         issuer: impl Into<String>,
         serial_number: impl Into<String>,
-        authorization_scopes: Vec<String>,
         not_before: OffsetDateTime,
         not_after: OffsetDateTime,
         now: OffsetDateTime,
     ) -> RelayResult<Self> {
         let subject = subject.into();
+        let issuer = issuer.into();
+        let serial_number = serial_number.into();
         if subject.trim().is_empty() {
             return Err(RelayError::new(
                 "empty_certificate_subject",
@@ -103,26 +104,28 @@ impl RemoteIdentity {
         }
 
         Ok(Self {
+            client_identity: fingerprint_identity_from_parts(
+                subject.as_bytes(),
+                issuer.as_bytes(),
+                serial_number.as_bytes(),
+            ),
             principal: subject.clone(),
             subject,
-            issuer: issuer.into(),
-            serial_number: serial_number.into(),
+            issuer,
+            serial_number,
             source: IdentitySource::Mtls,
             not_before,
             not_after,
-            authorization_scopes,
         })
     }
 
     /// 从 trusted proxy(可信代理) 已验证 header(标头) 创建身份.
     ///
     /// 参数 `subject` 是代理声明已验证的主体.
-    /// 参数 `authorization_scopes` 是身份授权范围.
     /// 参数 `now` 是创建时间.
     /// 返回值是可用于会话和审计的 `RemoteIdentity`(远程身份).
     pub fn from_trusted_proxy_subject(
         subject: impl Into<String>,
-        authorization_scopes: Vec<String>,
         now: OffsetDateTime,
     ) -> RelayResult<Self> {
         let subject = subject.into();
@@ -137,6 +140,7 @@ impl RemoteIdentity {
         }
 
         Ok(Self {
+            client_identity: format!("trusted_proxy:{subject}"),
             principal: subject.clone(),
             subject,
             issuer: "trusted-proxy".to_owned(),
@@ -144,16 +148,7 @@ impl RemoteIdentity {
             source: IdentitySource::TrustedProxy,
             not_before: now,
             not_after: now + time::Duration::days(1),
-            authorization_scopes,
         })
-    }
-
-    /// 判断身份是否具备指定授权范围.
-    ///
-    /// 参数 `scope` 是目标进程要求的授权范围.
-    /// 返回值表示该身份是否可以访问对应目标.
-    pub fn has_scope(&self, scope: &str) -> bool {
-        self.authorization_scopes.iter().any(|owned| owned == scope)
     }
 }
 
@@ -164,12 +159,10 @@ impl AuthContext {
     /// 从 DER(可分辨编码规则) 证书字节解析 mTLS(双向传输层安全协议认证) 身份.
     ///
     /// 参数 `certificate_der` 是客户端证书 DER(可分辨编码规则) 字节.
-    /// 参数 `authorization_scopes` 是认证层绑定的授权范围.
     /// 参数 `now` 是校验时间.
     /// 返回值是远程身份, 或者结构化证书错误.
     pub fn identity_from_mtls_der(
         certificate_der: &[u8],
-        authorization_scopes: Vec<String>,
         now: OffsetDateTime,
     ) -> RelayResult<RemoteIdentity> {
         if certificate_der.is_empty() {
@@ -193,15 +186,16 @@ impl AuthContext {
                 )
             })?;
 
-        RemoteIdentity::from_verified_mtls_subject(
+        let mut identity = RemoteIdentity::from_verified_mtls_subject(
             certificate.subject().to_string(),
             certificate.issuer().to_string(),
             certificate.raw_serial_as_string(),
-            authorization_scopes,
             now - time::Duration::seconds(1),
             now + time::Duration::days(1),
             now,
-        )
+        )?;
+        identity.client_identity = fingerprint_identity(certificate_der);
+        Ok(identity)
     }
 
     /// 从 trusted proxy(可信代理) 连接派生远程身份.
@@ -209,14 +203,12 @@ impl AuthContext {
     /// 参数 `config` 是可信代理配置.
     /// 参数 `remote_addr` 是实际连接来源 IP(网际协议地址).
     /// 参数 `headers` 是代理传入的 HTTP(超文本传输协议) header(标头).
-    /// 参数 `authorization_scopes` 是认证层绑定的授权范围.
     /// 参数 `now` 是创建时间.
     /// 返回值是远程身份, 或者结构化信任边界错误.
     pub fn identity_from_trusted_proxy(
         config: &TrustedProxyConfig,
         remote_addr: IpAddr,
         headers: &HashMap<String, String>,
-        authorization_scopes: Vec<String>,
         now: OffsetDateTime,
     ) -> RelayResult<RemoteIdentity> {
         if !config.enabled {
@@ -254,6 +246,26 @@ impl AuthContext {
                 )
             })?;
 
-        RemoteIdentity::from_trusted_proxy_subject(subject, authorization_scopes, now)
+        RemoteIdentity::from_trusted_proxy_subject(subject, now)
     }
+}
+
+fn fingerprint_identity(certificate_der: &[u8]) -> String {
+    let digest = Sha256::digest(certificate_der);
+    format!("mtls_cert_fingerprint:{}", lowercase_hex(&digest))
+}
+
+fn fingerprint_identity_from_parts(subject: &[u8], issuer: &[u8], serial: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(subject);
+    hasher.update([0]);
+    hasher.update(issuer);
+    hasher.update([0]);
+    hasher.update(serial);
+    let digest = hasher.finalize();
+    format!("mtls_cert_fingerprint:{}", lowercase_hex(&digest))
+}
+
+fn lowercase_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

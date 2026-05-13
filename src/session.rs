@@ -80,20 +80,107 @@ pub struct LogRecord {
     pub occurred_at: OffsetDateTime,
 }
 
+/// `LogEventFilterMode`(日志事件筛选模式) 表示 relay(中继) 或客户端本地负责筛选.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LogEventFilterMode {
+    /// `Remote`(远程过滤) 表示 relay(中继) 按条件减少下发.
+    Remote,
+    /// `Local`(本地过滤) 表示 relay(中继) 下发完整后续数据.
+    Local,
+}
+
+/// `ResumeCursorEntry`(恢复游标条目) 表示单个 target(目标) 和 stream(流) 的恢复点.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResumeCursorEntry {
+    /// `delivery_mode`(交付模式) 是 remote(远程过滤) 或 local(本地过滤).
+    pub delivery_mode: String,
+    /// `filter_config_version`(筛选配置版本) 是 relay(中继) 下发的配置版本.
+    pub filter_config_version: u64,
+    /// `stream_epoch`(流世代) 隔离 target(目标) 重启后的序列.
+    pub stream_epoch: String,
+    /// `sequence`(序列) 是 next_sequence_inclusive(下一条包含边界的序列).
+    pub sequence: u64,
+}
+
+/// `ResumeCursor`(恢复游标) 保存 event/log(事件和日志) 两个流的恢复请求.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResumeCursor {
+    /// `events`(事件) 保存事件流恢复点.
+    #[serde(default)]
+    pub events: HashMap<String, ResumeCursorEntry>,
+    /// `logs`(日志) 保存日志流恢复点.
+    #[serde(default)]
+    pub logs: HashMap<String, ResumeCursorEntry>,
+}
+
+/// `ClientHello`(客户端握手) 是客户端建立 session(会话) 后发送的第一条消息.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientHello {
+    /// `client_store_id`(客户端存储标识) 是本地数据库分区键.
+    pub client_store_id: String,
+    /// `resume_cursor`(恢复游标) 是本地持久化库提供的恢复请求.
+    #[serde(default)]
+    pub resume_cursor: ResumeCursor,
+}
+
+/// `LogEventFilterConditionsMessage`(日志事件筛选条件消息) 表达客户端当前筛选条件.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LogEventFilterConditionsMessage {
+    /// `target_ids`(目标标识集合) 限定目标.
+    #[serde(default)]
+    pub target_ids: Vec<String>,
+    /// `child_paths`(子任务路径集合) 限定子任务.
+    #[serde(default)]
+    pub child_paths: Vec<String>,
+    /// `lifecycle_states`(生命周期状态集合) 限定状态.
+    #[serde(default)]
+    pub lifecycle_states: Vec<String>,
+    /// `event_types`(事件类型集合) 限定事件类型.
+    #[serde(default)]
+    pub event_types: Vec<String>,
+    /// `severities`(严重程度集合) 限定严重程度.
+    #[serde(default)]
+    pub severities: Vec<String>,
+    /// `sequence_min`(最小序列) 表示客户端筛选的最小序列.
+    pub sequence_min: Option<u64>,
+    /// `correlation_id`(关联标识) 表示关联筛选文本.
+    pub correlation_id: Option<String>,
+}
+
+/// `ClientMessage`(客户端消息) 是当前协议接受的入站消息.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ClientMessage {
+    /// `ClientHello`(客户端握手) 必须是客户端第一条消息.
+    ClientHello(ClientHello),
+    /// `Command`(命令) 是握手后的控制命令.
+    Command(ClientCommand),
+    /// `LogEventFilterConditions`(日志事件筛选条件) 是当前协议的筛选更新消息.
+    LogEventFilterConditions(LogEventFilterConditionsMessage),
+}
+
 /// `ServerMessage`(服务端消息) 是 relay(中继) 通过 `wss://` 发送给 dashboard(看板) 的消息.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
-    /// `SessionEstablished`(会话已建立) 是首包消息.
-    SessionEstablished {
+    /// `ServerHello`(服务端握手) 是 relay(中继) 在业务数据前发送的身份引导.
+    ServerHello {
         /// `session_id`(会话标识) 是 relay(中继) 生成的 UUID(通用唯一标识).
         session_id: Uuid,
-        /// `identity`(身份) 是已认证远程身份.
-        identity: RemoteIdentity,
-        /// `targets`(目标列表) 是当前可见 active registration(活动注册).
+        /// `client_identity`(客户端身份) 是 mTLS(双向传输层安全) 证书身份键.
+        client_identity: String,
+        /// `log_event_filter_mode`(日志事件筛选模式) 是当前身份的筛选模式.
+        log_event_filter_mode: LogEventFilterMode,
+        /// `log_event_filter_conditions`(日志事件筛选条件) 是当前身份的筛选条件.
+        log_event_filter_conditions: serde_json::Value,
+        /// `filter_config_version`(筛选配置版本) 是当前身份配置版本.
+        filter_config_version: u64,
+    },
+    /// `TargetList`(目标列表) 是 client_hello(客户端握手) 成功后的业务数据.
+    TargetList {
+        /// `targets`(目标列表) 是当前活动 target(目标).
         targets: Vec<VisibleTarget>,
-        /// `authorization_scopes`(授权范围) 是该 session(会话) 的授权范围.
-        authorization_scopes: Vec<String>,
     },
     /// `State`(状态) 在目标绑定或重连后发送.
     State {
@@ -151,6 +238,66 @@ pub enum ServerMessage {
     },
 }
 
+/// 解码客户端消息并拒绝历史协议字段.
+///
+/// 参数 `raw` 是 WebSocket(网络套接字) 文本消息.
+/// 返回值是当前协议客户端消息, 或者结构化拒绝错误.
+pub fn decode_client_message(raw: &str) -> RelayResult<ClientMessage> {
+    let value: serde_json::Value = serde_json::from_str(raw).map_err(|error| {
+        RelayError::new(
+            "invalid_message_json",
+            "session_decode",
+            None,
+            format!("client message could not be parsed: {error}"),
+            false,
+        )
+    })?;
+
+    let message_type = value.get("type").and_then(serde_json::Value::as_str);
+    if message_type == Some("client_hello") {
+        let object = value.as_object().ok_or_else(|| {
+            RelayError::new(
+                "invalid_message_schema",
+                "session_decode",
+                None,
+                "client message must be a JSON object",
+                false,
+            )
+        })?;
+        let allowed = ["type", "client_store_id", "resume_cursor"];
+        if object.keys().any(|key| !allowed.contains(&key.as_str())) {
+            return Err(RelayError::new(
+                "unsupported_field",
+                "session_decode",
+                None,
+                "message field is not supported by the current protocol",
+                false,
+            ));
+        }
+    } else if !matches!(
+        message_type,
+        Some("command" | "log_event_filter_conditions")
+    ) {
+        return Err(RelayError::new(
+            "unsupported_message_type",
+            "session_decode",
+            None,
+            "message type is not supported by the current protocol",
+            false,
+        ));
+    }
+
+    serde_json::from_value(value).map_err(|error| {
+        RelayError::new(
+            "invalid_message_schema",
+            "session_decode",
+            None,
+            format!("client message schema is invalid: {error}"),
+            false,
+        )
+    })
+}
+
 /// `DashboardSession`(看板会话) 保存一个已认证远程连接的状态.
 #[derive(Debug)]
 pub struct DashboardSession {
@@ -158,8 +305,8 @@ pub struct DashboardSession {
     session_id: Uuid,
     /// `remote_identity`(远程身份) 在认证成功后保存身份.
     remote_identity: Option<RemoteIdentity>,
-    /// `authorization_scopes`(授权范围) 保存 session(会话) 可访问的 scope(授权范围).
-    authorization_scopes: Vec<String>,
+    /// `client_store_id`(客户端存储标识) 在 client_hello(客户端握手) 后保存.
+    client_store_id: Option<String>,
     /// `connection_state`(连接状态) 保存远程连接生命周期.
     connection_state: ConnectionStateForSession,
     /// `control_state`(控制状态) 保存是否允许触发 IPC(进程间通信).
@@ -185,7 +332,7 @@ impl DashboardSession {
         Self {
             session_id: Uuid::new_v4(),
             remote_identity: None,
-            authorization_scopes: Vec::new(),
+            client_store_id: None,
             connection_state: ConnectionStateForSession::Handshaking,
             control_state: ControlState::NotEstablished,
             bound_targets: HashSet::new(),
@@ -194,6 +341,79 @@ impl DashboardSession {
             created_at: now,
             last_seen_at: now,
         }
+    }
+
+    /// 创建只发送 server_hello(服务端握手) 的已认证 session(会话).
+    ///
+    /// 参数 `identity` 是已认证远程身份.
+    /// 参数 `now` 是会话创建时间.
+    /// 返回值是等待 client_hello(客户端握手) 的 session(会话).
+    pub fn server_hello(identity: RemoteIdentity, now: OffsetDateTime) -> Self {
+        let session_id = Uuid::new_v4();
+        let outbox = vec![ServerMessage::ServerHello {
+            session_id,
+            client_identity: identity.client_identity.clone(),
+            log_event_filter_mode: LogEventFilterMode::Remote,
+            log_event_filter_conditions: serde_json::json!({}),
+            filter_config_version: 0,
+        }];
+
+        Self {
+            session_id,
+            remote_identity: Some(identity),
+            client_store_id: None,
+            connection_state: ConnectionStateForSession::Handshaking,
+            control_state: ControlState::NotEstablished,
+            bound_targets: HashSet::new(),
+            last_sequences: HashMap::new(),
+            outbox,
+            created_at: now,
+            last_seen_at: now,
+        }
+    }
+
+    /// 接受 client_hello(客户端握手) 并开放业务数据.
+    ///
+    /// 参数 `hello` 是客户端第一条消息.
+    /// 参数 `now` 是握手时间.
+    /// 返回值在握手成功时为空.
+    pub fn accept_client_hello(
+        &mut self,
+        hello: ClientHello,
+        now: OffsetDateTime,
+    ) -> RelayResult<()> {
+        if hello.client_store_id.trim().is_empty() {
+            return Err(RelayError::new(
+                "invalid_message_schema",
+                "session",
+                None,
+                "client_store_id must not be empty",
+                false,
+            ));
+        }
+
+        if self.connection_state != ConnectionStateForSession::Handshaking {
+            return Err(RelayError::new(
+                "protocol_error",
+                "session",
+                None,
+                "client_hello is only valid during handshaking",
+                false,
+            ));
+        }
+
+        self.client_store_id = Some(hello.client_store_id);
+        self.connection_state = ConnectionStateForSession::Established;
+        self.control_state = ControlState::Established;
+        self.last_seen_at = now;
+        Ok(())
+    }
+
+    /// 在 client_hello(客户端握手) 后发布 target list(目标列表).
+    ///
+    /// 参数 `targets` 是当前活动目标集合.
+    pub fn publish_target_list(&mut self, targets: Vec<VisibleTarget>) {
+        self.outbox.push(ServerMessage::TargetList { targets });
     }
 
     /// 建立一个已认证 control session(控制会话).
@@ -219,28 +439,18 @@ impl DashboardSession {
             ));
         }
 
-        let targets = registry.visible_targets_for_scopes(&identity.authorization_scopes, now);
-        let session_id = Uuid::new_v4();
-        let authorization_scopes = identity.authorization_scopes.clone();
-        let outbox = vec![ServerMessage::SessionEstablished {
-            session_id,
-            identity: identity.clone(),
-            targets,
-            authorization_scopes: authorization_scopes.clone(),
-        }];
+        let mut session = Self::server_hello(identity, now);
+        session.accept_client_hello(
+            ClientHello {
+                client_store_id: "volatile-session".to_owned(),
+                resume_cursor: ResumeCursor::default(),
+            },
+            now,
+        )?;
+        let targets = registry.active_targets(now);
+        session.publish_target_list(targets);
 
-        Ok(Self {
-            session_id,
-            remote_identity: Some(identity),
-            authorization_scopes,
-            connection_state: ConnectionStateForSession::Established,
-            control_state: ControlState::Established,
-            bound_targets: HashSet::new(),
-            last_sequences: HashMap::new(),
-            outbox,
-            created_at: now,
-            last_seen_at: now,
-        })
+        Ok(session)
     }
 
     /// 绑定一个目标进程并触发 IPC(进程间通信) state(状态) 和 subscription(订阅).
@@ -258,7 +468,7 @@ impl DashboardSession {
         now: OffsetDateTime,
     ) -> RelayResult<()> {
         self.ensure_control_established()?;
-        registry.ensure_authorized(target_id, &self.authorization_scopes, now)?;
+        registry.ensure_target_active(target_id, now)?;
         let registration = registry.registration(target_id)?.clone();
 
         if self.bound_targets.contains(target_id) {
@@ -321,7 +531,8 @@ impl DashboardSession {
             ));
         }
 
-        registry.ensure_authorized(&command.target_id, &self.authorization_scopes, now)?;
+        registry.ensure_target_active(&command.target_id, now)?;
+        registry.ensure_command_supported(&command.target_id, command.command)?;
         let registration = registry.registration(&command.target_id)?.clone();
         let prepared = prepare_client_command(command, &identity, now)?;
         audit.record_accepted(&identity, &prepared, now);
@@ -344,6 +555,14 @@ impl DashboardSession {
     /// 返回值是服务端消息切片.
     pub fn outbox(&self) -> &[ServerMessage] {
         &self.outbox
+    }
+
+    /// 取出并清空 session(会话) 输出队列.
+    ///
+    /// 参数为空, 因为该方法移动当前输出队列.
+    /// 返回值是待发送服务端消息.
+    pub fn drain_outbox(&mut self) -> Vec<ServerMessage> {
+        std::mem::take(&mut self.outbox)
     }
 
     /// 读取 session id(会话标识).
@@ -378,7 +597,7 @@ impl DashboardSession {
         self.outbox
             .iter()
             .find_map(|message| match message {
-                ServerMessage::SessionEstablished { targets, .. } => Some(targets.len()),
+                ServerMessage::TargetList { targets } => Some(targets.len()),
                 _ => None,
             })
             .unwrap_or(0)

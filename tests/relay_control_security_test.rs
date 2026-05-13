@@ -8,7 +8,7 @@ use rust_supervisor_relay::auth::{AuthContext, RemoteIdentity};
 use rust_supervisor_relay::command::{ClientCommand, CommandTarget, ControlCommandName};
 use rust_supervisor_relay::config::{DashboardRelayConfig, TrustedProxyConfig};
 use rust_supervisor_relay::ipc_client::UnixNdjsonIpcClient;
-use rust_supervisor_relay::registration::RegistrationRequest;
+use rust_supervisor_relay::registration::{RegistrationRequest, SupportedCommand};
 use rust_supervisor_relay::registry::TargetProcessRegistry;
 use rust_supervisor_relay::session::{DashboardSession, TransportSecurity};
 use support::ProtocolTestTarget;
@@ -35,8 +35,6 @@ registration:
     - {}
   default_lease_seconds: 30
   max_lease_seconds: 120
-authorization_defaults:
-  unknown_scope_policy: reject
 "#,
         target.allowed_prefix().display()
     ))
@@ -48,9 +46,10 @@ authorization_defaults:
                 "payments-worker-a",
                 "payments worker a",
                 target.path(),
-                "payments:operate",
                 30,
+                vec![SupportedCommand::new("restart_child", false, 30)],
             ),
+            "uid:501",
             OffsetDateTime::UNIX_EPOCH,
         )
         .expect("registration should pass");
@@ -62,7 +61,6 @@ fn identity() -> RemoteIdentity {
         "CN=operator@example.test",
         "CN=operators-ca",
         "01",
-        vec!["payments:operate".to_owned()],
         OffsetDateTime::UNIX_EPOCH,
         OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1),
         OffsetDateTime::UNIX_EPOCH,
@@ -73,6 +71,7 @@ fn identity() -> RemoteIdentity {
 fn restart_command() -> ClientCommand {
     ClientCommand {
         command_id: "cmd-1".to_owned(),
+        correlation_id: None,
         target_id: "payments-worker-a".to_owned(),
         command: ControlCommandName::RestartChild,
         target: CommandTarget {
@@ -155,7 +154,6 @@ fn trusted_proxy_identity_header_is_rejected_from_untrusted_remote_address() {
         &proxy,
         "203.0.113.42".parse::<IpAddr>().expect("ip should parse"),
         &headers,
-        vec!["payments:operate".to_owned()],
         OffsetDateTime::UNIX_EPOCH,
     )
     .expect_err("untrusted remote address must not provide identity");

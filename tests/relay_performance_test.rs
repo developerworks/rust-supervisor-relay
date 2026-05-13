@@ -1,13 +1,14 @@
 use rust_supervisor_relay::auth::RemoteIdentity;
 use rust_supervisor_relay::config::DashboardRelayConfig;
-use rust_supervisor_relay::registration::RegistrationRequest;
+use rust_supervisor_relay::registration::{RegistrationRequest, SupportedCommand};
 use rust_supervisor_relay::registry::{ConnectionState, TargetProcessRegistry};
 use rust_supervisor_relay::session::{DashboardSession, TransportSecurity};
 use time::OffsetDateTime;
 
 #[test]
 fn registry_tracks_five_active_registrations_and_session_gating_keeps_ipc_idle_before_bind() {
-    let config = DashboardRelayConfig::from_yaml_str(
+    let dir = tempfile::tempdir().expect("temporary directory should exist");
+    let config = DashboardRelayConfig::from_yaml_str(&format!(
         r#"
 listen:
   bind: "127.0.0.1:9443"
@@ -24,13 +25,12 @@ registration:
   listen_path: /run/rust-supervisor/dashboard-relay-registration.sock
   permissions: "0600"
   allowed_ipc_path_prefixes:
-    - /run/rust-supervisor/
+    - {}
   default_lease_seconds: 30
   max_lease_seconds: 120
-authorization_defaults:
-  unknown_scope_policy: reject
 "#,
-    )
+        dir.path().display()
+    ))
     .expect("config should parse");
     let mut registry = TargetProcessRegistry::new(config.registration);
     let now = OffsetDateTime::UNIX_EPOCH;
@@ -41,10 +41,11 @@ authorization_defaults:
                 RegistrationRequest::new(
                     format!("worker-{index}"),
                     format!("worker {index}"),
-                    format!("/run/rust-supervisor/worker-{index}.sock"),
-                    "ops:read",
+                    dir.path().join(format!("worker-{index}.sock")),
                     30,
+                    vec![SupportedCommand::new("restart_child", false, 30)],
                 ),
+                "uid:501",
                 now,
             )
             .expect("registration should pass");
@@ -54,7 +55,6 @@ authorization_defaults:
         "CN=operator@example.test",
         "CN=operators-ca",
         "01",
-        vec!["ops:read".to_owned()],
         now,
         now + time::Duration::hours(1),
         now,

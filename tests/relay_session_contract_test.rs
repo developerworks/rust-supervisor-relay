@@ -3,7 +3,7 @@ mod support;
 use rust_supervisor_relay::auth::RemoteIdentity;
 use rust_supervisor_relay::config::DashboardRelayConfig;
 use rust_supervisor_relay::ipc_client::UnixNdjsonIpcClient;
-use rust_supervisor_relay::registration::RegistrationRequest;
+use rust_supervisor_relay::registration::{RegistrationRequest, SupportedCommand};
 use rust_supervisor_relay::registry::{ConnectionState, TargetProcessRegistry};
 use rust_supervisor_relay::session::{DashboardSession, ServerMessage, TransportSecurity};
 use support::ProtocolTestTarget;
@@ -31,8 +31,6 @@ registration:
     - {}
   default_lease_seconds: 30
   max_lease_seconds: 120
-authorization_defaults:
-  unknown_scope_policy: reject
 "#,
         first_prefix.display(),
         second_prefix.display()
@@ -56,9 +54,10 @@ fn registry_with_two_targets(
                 "payments-worker-a",
                 "payments worker a",
                 payments_target.path(),
-                "payments:operate",
                 30,
+                vec![SupportedCommand::new("restart_child", false, 30)],
             ),
+            "uid:501",
             now,
         )
         .expect("registration should pass");
@@ -68,9 +67,10 @@ fn registry_with_two_targets(
                 "orders-worker-a",
                 "orders worker a",
                 orders_target.path(),
-                "orders:read",
                 30,
+                vec![SupportedCommand::new("restart_child", false, 30)],
             ),
+            "uid:501",
             now,
         )
         .expect("registration should pass");
@@ -82,7 +82,6 @@ fn identity() -> RemoteIdentity {
         "CN=operator@example.test",
         "CN=operators-ca",
         "01",
-        vec!["payments:operate".to_owned()],
         OffsetDateTime::UNIX_EPOCH,
         OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1),
         OffsetDateTime::UNIX_EPOCH,
@@ -91,7 +90,7 @@ fn identity() -> RemoteIdentity {
 }
 
 #[test]
-fn active_registration_only_builds_target_list_before_binding() {
+fn active_registration_builds_target_list_after_client_hello_before_binding() {
     let payments_target = ProtocolTestTarget::start("payments-worker-a");
     let orders_target = ProtocolTestTarget::start("orders-worker-a");
     let registry = registry_with_two_targets(&payments_target, &orders_target);
@@ -104,27 +103,26 @@ fn active_registration_only_builds_target_list_before_binding() {
     )
     .expect("wss session should establish");
 
+    assert!(matches!(
+        session.outbox().first(),
+        Some(ServerMessage::ServerHello { .. })
+    ));
     match session
         .outbox()
-        .first()
-        .expect("session should send first message")
+        .iter()
+        .find(|message| matches!(message, ServerMessage::TargetList { .. }))
+        .expect("session should send target list after client hello")
     {
-        ServerMessage::SessionEstablished {
-            targets,
-            authorization_scopes,
-            ..
-        } => {
-            assert_eq!(targets.len(), 1);
-            assert_eq!(targets[0].target_id, "payments-worker-a");
+        ServerMessage::TargetList { targets } => {
+            assert_eq!(targets.len(), 2);
             assert_eq!(targets[0].connection_state, ConnectionState::Registered);
-            assert_eq!(authorization_scopes, &vec!["payments:operate".to_owned()]);
         }
-        _ => panic!("first message must be session_established"),
+        _ => unreachable!(),
     }
 }
 
 #[test]
-fn authorized_binding_connects_state_and_event_log_subscription_after_session_established() {
+fn binding_connects_state_and_event_log_subscription_after_session_established() {
     let payments_target = ProtocolTestTarget::start("payments-worker-a");
     let orders_target = ProtocolTestTarget::start("orders-worker-a");
     let mut registry = registry_with_two_targets(&payments_target, &orders_target);
@@ -157,7 +155,7 @@ fn authorized_binding_connects_state_and_event_log_subscription_after_session_es
 }
 
 #[test]
-fn unauthorized_target_cannot_bind_and_does_not_touch_ipc() {
+fn auto_bind_phase_allows_any_active_target_without_ui_permission_check() {
     let payments_target = ProtocolTestTarget::start("payments-worker-a");
     let orders_target = ProtocolTestTarget::start("orders-worker-a");
     let mut registry = registry_with_two_targets(&payments_target, &orders_target);
@@ -170,14 +168,14 @@ fn unauthorized_target_cannot_bind_and_does_not_touch_ipc() {
     )
     .expect("wss session should establish");
 
-    let error = session
+    session
         .bind_target(
             "orders-worker-a",
             &mut registry,
             &ipc,
             OffsetDateTime::UNIX_EPOCH,
         )
-        .expect_err("missing scope must block binding");
+        .expect("current phase binds any active target");
 
-    assert_eq!(error.code, "unauthorized_target");
+    assert!(session.is_bound("orders-worker-a"));
 }
