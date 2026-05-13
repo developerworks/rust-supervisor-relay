@@ -457,7 +457,7 @@ impl DashboardSession {
     ///
     /// The `target_id` parameter is the target process identifier.
     /// The `registry` parameter is the mutable target registry.
-    /// The `ipc` parameter is the mockable IPC port.
+    /// The `ipc` parameter is the abstracted IPC port.
     /// The `now` parameter is the binding time.
     /// The return value is empty when binding succeeds.
     pub fn bind_target(
@@ -498,7 +498,7 @@ impl DashboardSession {
     ///
     /// The `command` parameter is the client command.
     /// The `registry` parameter is the mutable target registry.
-    /// The `ipc` parameter is the mockable IPC port.
+    /// The `ipc` parameter is the abstracted IPC port.
     /// The `audit` parameter is the audit recorder.
     /// The `now` parameter is the command processing time.
     /// The return value is the target process command result.
