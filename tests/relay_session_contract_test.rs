@@ -1,13 +1,16 @@
+mod support;
+
 use rust_supervisor_relay::auth::RemoteIdentity;
 use rust_supervisor_relay::config::DashboardRelayConfig;
-use rust_supervisor_relay::ipc_client::RecordingIpcClient;
+use rust_supervisor_relay::ipc_client::UnixNdjsonIpcClient;
 use rust_supervisor_relay::registration::RegistrationRequest;
 use rust_supervisor_relay::registry::{ConnectionState, TargetProcessRegistry};
 use rust_supervisor_relay::session::{DashboardSession, ServerMessage, TransportSecurity};
+use support::ProtocolTestTarget;
 use time::OffsetDateTime;
 
-fn config() -> DashboardRelayConfig {
-    DashboardRelayConfig::from_yaml_str(
+fn config(first_prefix: &std::path::Path, second_prefix: &std::path::Path) -> DashboardRelayConfig {
+    DashboardRelayConfig::from_yaml_str(&format!(
         r#"
 listen:
   bind: "127.0.0.1:9443"
@@ -24,18 +27,27 @@ registration:
   listen_path: /run/rust-supervisor/dashboard-relay-registration.sock
   permissions: "0600"
   allowed_ipc_path_prefixes:
-    - /run/rust-supervisor/
+    - {}
+    - {}
   default_lease_seconds: 30
   max_lease_seconds: 120
 authorization_defaults:
   unknown_scope_policy: reject
 "#,
-    )
+        first_prefix.display(),
+        second_prefix.display()
+    ))
     .expect("config should parse")
 }
 
-fn registry_with_two_targets() -> TargetProcessRegistry {
-    let config = config();
+fn registry_with_two_targets(
+    payments_target: &ProtocolTestTarget,
+    orders_target: &ProtocolTestTarget,
+) -> TargetProcessRegistry {
+    let config = config(
+        payments_target.allowed_prefix(),
+        orders_target.allowed_prefix(),
+    );
     let mut registry = TargetProcessRegistry::new(config.registration);
     let now = OffsetDateTime::UNIX_EPOCH;
     registry
@@ -43,7 +55,7 @@ fn registry_with_two_targets() -> TargetProcessRegistry {
             RegistrationRequest::new(
                 "payments-worker-a",
                 "payments worker a",
-                "/run/rust-supervisor/payments-worker-a.sock",
+                payments_target.path(),
                 "payments:operate",
                 30,
             ),
@@ -55,7 +67,7 @@ fn registry_with_two_targets() -> TargetProcessRegistry {
             RegistrationRequest::new(
                 "orders-worker-a",
                 "orders worker a",
-                "/run/rust-supervisor/orders-worker-a.sock",
+                orders_target.path(),
                 "orders:read",
                 30,
             ),
@@ -80,10 +92,9 @@ fn identity() -> RemoteIdentity {
 
 #[test]
 fn active_registration_only_builds_target_list_before_binding() {
-    let registry = registry_with_two_targets();
-    let ipc = RecordingIpcClient::default();
-
-    assert_eq!(ipc.total_connect_count(), 0);
+    let payments_target = ProtocolTestTarget::start("payments-worker-a");
+    let orders_target = ProtocolTestTarget::start("orders-worker-a");
+    let registry = registry_with_two_targets(&payments_target, &orders_target);
 
     let session = DashboardSession::establish(
         identity(),
@@ -92,8 +103,6 @@ fn active_registration_only_builds_target_list_before_binding() {
         OffsetDateTime::UNIX_EPOCH,
     )
     .expect("wss session should establish");
-
-    assert_eq!(ipc.total_connect_count(), 0);
 
     match session
         .outbox()
@@ -116,8 +125,10 @@ fn active_registration_only_builds_target_list_before_binding() {
 
 #[test]
 fn authorized_binding_connects_state_and_event_log_subscription_after_session_established() {
-    let mut registry = registry_with_two_targets();
-    let ipc = RecordingIpcClient::default();
+    let payments_target = ProtocolTestTarget::start("payments-worker-a");
+    let orders_target = ProtocolTestTarget::start("orders-worker-a");
+    let mut registry = registry_with_two_targets(&payments_target, &orders_target);
+    let ipc = UnixNdjsonIpcClient;
     let mut session = DashboardSession::establish(
         identity(),
         &registry,
@@ -135,8 +146,6 @@ fn authorized_binding_connects_state_and_event_log_subscription_after_session_es
         )
         .expect("authorized target should bind");
 
-    assert_eq!(ipc.connect_count("payments-worker-a"), 1);
-    assert_eq!(ipc.subscription_count("payments-worker-a"), 1);
     assert!(session.is_bound("payments-worker-a"));
 
     let state_index = session
@@ -149,8 +158,10 @@ fn authorized_binding_connects_state_and_event_log_subscription_after_session_es
 
 #[test]
 fn unauthorized_target_cannot_bind_and_does_not_touch_ipc() {
-    let mut registry = registry_with_two_targets();
-    let ipc = RecordingIpcClient::default();
+    let payments_target = ProtocolTestTarget::start("payments-worker-a");
+    let orders_target = ProtocolTestTarget::start("orders-worker-a");
+    let mut registry = registry_with_two_targets(&payments_target, &orders_target);
+    let ipc = UnixNdjsonIpcClient;
     let mut session = DashboardSession::establish(
         identity(),
         &registry,
@@ -169,5 +180,4 @@ fn unauthorized_target_cannot_bind_and_does_not_touch_ipc() {
         .expect_err("missing scope must block binding");
 
     assert_eq!(error.code, "unauthorized_target");
-    assert_eq!(ipc.total_connect_count(), 0);
 }

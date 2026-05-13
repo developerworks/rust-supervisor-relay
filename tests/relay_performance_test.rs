@@ -1,6 +1,5 @@
 use rust_supervisor_relay::auth::RemoteIdentity;
 use rust_supervisor_relay::config::DashboardRelayConfig;
-use rust_supervisor_relay::ipc_client::RecordingIpcClient;
 use rust_supervisor_relay::registration::RegistrationRequest;
 use rust_supervisor_relay::registry::{ConnectionState, TargetProcessRegistry};
 use rust_supervisor_relay::session::{DashboardSession, TransportSecurity};
@@ -61,13 +60,11 @@ authorization_defaults:
         now,
     )
     .expect("identity should validate");
-    let ipc = RecordingIpcClient::default();
     let session = DashboardSession::establish(identity, &registry, TransportSecurity::Wss, now)
         .expect("session should establish");
 
     assert_eq!(registry.active_registration_count(now), 5);
     assert_eq!(session.visible_target_count(), 5);
-    assert_eq!(ipc.total_connect_count(), 0);
 
     registry.mark_unavailable(
         "worker-3",

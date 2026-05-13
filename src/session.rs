@@ -266,11 +266,9 @@ impl DashboardSession {
         }
 
         registry.begin_binding(target_id, now)?;
-        let state = ipc
-            .connect_state(&registration, now)
-            .inspect_err(|error| {
-                registry.mark_unavailable(target_id, error.message.clone(), now);
-            })?;
+        let state = ipc.connect_state(&registration, now).inspect_err(|error| {
+            registry.mark_unavailable(target_id, error.message.clone(), now);
+        })?;
         registry.mark_connected(target_id, state.state_generation, now)?;
         ipc.subscribe_event_log(&registration, now)
             .inspect_err(|error| {
@@ -324,11 +322,14 @@ impl DashboardSession {
         }
 
         registry.ensure_authorized(&command.target_id, &self.authorization_scopes, now)?;
+        let registration = registry.registration(&command.target_id)?.clone();
         let prepared = prepare_client_command(command, &identity, now)?;
         audit.record_accepted(&identity, &prepared, now);
-        let result = ipc.forward_command(&prepared, now).inspect_err(|error| {
-            audit.record_rejected(&identity, &prepared, error.message.clone(), now);
-        })?;
+        let result = ipc
+            .forward_command(&registration, &prepared, now)
+            .inspect_err(|error| {
+                audit.record_rejected(&identity, &prepared, error.message.clone(), now);
+            })?;
         audit.record_completed(&identity, &prepared, result.status.clone(), now);
         self.outbox.push(ServerMessage::CommandResult {
             target_id: result.target_id.clone(),

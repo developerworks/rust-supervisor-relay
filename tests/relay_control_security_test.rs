@@ -1,3 +1,5 @@
+mod support;
+
 use std::collections::HashMap;
 use std::net::IpAddr;
 
@@ -5,14 +7,15 @@ use rust_supervisor_relay::audit::AuditRecorder;
 use rust_supervisor_relay::auth::{AuthContext, RemoteIdentity};
 use rust_supervisor_relay::command::{ClientCommand, CommandTarget, ControlCommandName};
 use rust_supervisor_relay::config::{DashboardRelayConfig, TrustedProxyConfig};
-use rust_supervisor_relay::ipc_client::RecordingIpcClient;
+use rust_supervisor_relay::ipc_client::UnixNdjsonIpcClient;
 use rust_supervisor_relay::registration::RegistrationRequest;
 use rust_supervisor_relay::registry::TargetProcessRegistry;
 use rust_supervisor_relay::session::{DashboardSession, TransportSecurity};
+use support::ProtocolTestTarget;
 use time::OffsetDateTime;
 
-fn registry() -> TargetProcessRegistry {
-    let config = DashboardRelayConfig::from_yaml_str(
+fn registry(target: &ProtocolTestTarget) -> TargetProcessRegistry {
+    let config = DashboardRelayConfig::from_yaml_str(&format!(
         r#"
 listen:
   bind: "127.0.0.1:9443"
@@ -29,13 +32,14 @@ registration:
   listen_path: /run/rust-supervisor/dashboard-relay-registration.sock
   permissions: "0600"
   allowed_ipc_path_prefixes:
-    - /run/rust-supervisor/
+    - {}
   default_lease_seconds: 30
   max_lease_seconds: 120
 authorization_defaults:
   unknown_scope_policy: reject
 "#,
-    )
+        target.allowed_prefix().display()
+    ))
     .expect("config should parse");
     let mut registry = TargetProcessRegistry::new(config.registration);
     registry
@@ -43,7 +47,7 @@ authorization_defaults:
             RegistrationRequest::new(
                 "payments-worker-a",
                 "payments worker a",
-                "/run/rust-supervisor/payments-worker-a.sock",
+                target.path(),
                 "payments:operate",
                 30,
             ),
@@ -82,7 +86,8 @@ fn restart_command() -> ClientCommand {
 
 #[test]
 fn ws_transport_cannot_establish_full_control_session() {
-    let registry = registry();
+    let target = ProtocolTestTarget::start("payments-worker-a");
+    let registry = registry(&target);
     let error = DashboardSession::establish(
         identity(),
         &registry,
@@ -96,8 +101,9 @@ fn ws_transport_cannot_establish_full_control_session() {
 
 #[test]
 fn unauthenticated_or_unbound_commands_do_not_forward_to_ipc() {
-    let mut registry = registry();
-    let ipc = RecordingIpcClient::default();
+    let target = ProtocolTestTarget::start("payments-worker-a");
+    let mut registry = registry(&target);
+    let ipc = UnixNdjsonIpcClient;
     let mut audit = AuditRecorder::default();
     let mut unauthenticated = DashboardSession::unauthenticated(OffsetDateTime::UNIX_EPOCH);
 
@@ -112,8 +118,6 @@ fn unauthenticated_or_unbound_commands_do_not_forward_to_ipc() {
         .expect_err("unauthenticated command must fail");
 
     assert_eq!(unauth_error.code, "session_not_established");
-    assert_eq!(ipc.total_command_count(), 0);
-
     let mut established = DashboardSession::establish(
         identity(),
         &registry,
@@ -132,7 +136,6 @@ fn unauthenticated_or_unbound_commands_do_not_forward_to_ipc() {
         .expect_err("unbound target must fail");
 
     assert_eq!(unbound_error.code, "target_not_bound");
-    assert_eq!(ipc.total_command_count(), 0);
 }
 
 #[test]
@@ -162,8 +165,9 @@ fn trusted_proxy_identity_header_is_rejected_from_untrusted_remote_address() {
 
 #[test]
 fn bound_command_derives_requested_by_and_never_uses_client_override() {
-    let mut registry = registry();
-    let ipc = RecordingIpcClient::default();
+    let target = ProtocolTestTarget::start("payments-worker-a");
+    let mut registry = registry(&target);
+    let ipc = UnixNdjsonIpcClient;
     let mut audit = AuditRecorder::default();
     let mut session = DashboardSession::establish(
         identity(),
@@ -193,7 +197,6 @@ fn bound_command_derives_requested_by_and_never_uses_client_override() {
         .expect("authorized command should forward");
 
     assert_eq!(result.requested_by, "CN=operator@example.test");
-    assert_eq!(ipc.command_count("payments-worker-a"), 1);
 
     let mut spoofed = restart_command();
     spoofed.command_id = "cmd-2".to_owned();

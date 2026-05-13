@@ -55,10 +55,7 @@ fn config_accepts_wss_registration_policy_and_relay_directory_boundary() {
 
     config.validate().expect("wss relay config should validate");
 
-    assert_eq!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/Users/0x00/Documents/rust-supervisor-relay"
-    );
+    assert!(Path::new(env!("CARGO_MANIFEST_DIR")).ends_with("rust-supervisor-relay"));
     assert!(
         !Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("targets.yaml")

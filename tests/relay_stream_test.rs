@@ -1,14 +1,23 @@
+mod support;
+
 use rust_supervisor_relay::auth::RemoteIdentity;
 use rust_supervisor_relay::config::DashboardRelayConfig;
-use rust_supervisor_relay::ipc_client::RecordingIpcClient;
+use rust_supervisor_relay::ipc_client::UnixNdjsonIpcClient;
 use rust_supervisor_relay::registration::RegistrationRequest;
 use rust_supervisor_relay::registry::TargetProcessRegistry;
 use rust_supervisor_relay::relay::RelayHub;
 use rust_supervisor_relay::session::{DashboardSession, ServerMessage, TransportSecurity};
+use support::ProtocolTestTarget;
 use time::OffsetDateTime;
 
-fn session_with_registry() -> (DashboardSession, TargetProcessRegistry, RecordingIpcClient) {
-    let config = DashboardRelayConfig::from_yaml_str(
+fn session_with_registry() -> (
+    DashboardSession,
+    TargetProcessRegistry,
+    UnixNdjsonIpcClient,
+    ProtocolTestTarget,
+) {
+    let target = ProtocolTestTarget::start("payments-worker-a");
+    let config = DashboardRelayConfig::from_yaml_str(&format!(
         r#"
 listen:
   bind: "127.0.0.1:9443"
@@ -25,13 +34,14 @@ registration:
   listen_path: /run/rust-supervisor/dashboard-relay-registration.sock
   permissions: "0600"
   allowed_ipc_path_prefixes:
-    - /run/rust-supervisor/
+    - {}
   default_lease_seconds: 30
   max_lease_seconds: 120
 authorization_defaults:
   unknown_scope_policy: reject
 "#,
-    )
+        target.allowed_prefix().display()
+    ))
     .expect("config should parse");
     let now = OffsetDateTime::UNIX_EPOCH;
     let mut registry = TargetProcessRegistry::new(config.registration);
@@ -40,7 +50,7 @@ authorization_defaults:
             RegistrationRequest::new(
                 "payments-worker-a",
                 "payments worker a",
-                "/run/rust-supervisor/payments-worker-a.sock",
+                target.path(),
                 "payments:operate",
                 30,
             ),
@@ -59,12 +69,12 @@ authorization_defaults:
     .expect("identity should validate");
     let session = DashboardSession::establish(identity, &registry, TransportSecurity::Wss, now)
         .expect("session should establish");
-    (session, registry, RecordingIpcClient::default())
+    (session, registry, UnixNdjsonIpcClient, target)
 }
 
 #[test]
 fn registration_without_session_binding_does_not_push_streams() {
-    let (mut session, _registry, _ipc) = session_with_registry();
+    let (mut session, _registry, _ipc, _target) = session_with_registry();
 
     let messages = RelayHub::fan_out_event(
         &mut session,
@@ -81,7 +91,7 @@ fn registration_without_session_binding_does_not_push_streams() {
 
 #[test]
 fn bound_session_receives_event_log_state_delta_and_dropped_count_in_order() {
-    let (mut session, mut registry, ipc) = session_with_registry();
+    let (mut session, mut registry, ipc, _target) = session_with_registry();
     session
         .bind_target(
             "payments-worker-a",
@@ -135,7 +145,7 @@ fn bound_session_receives_event_log_state_delta_and_dropped_count_in_order() {
 
 #[test]
 fn sequence_gap_is_reported_and_reconnect_timeout_marks_target_unavailable() {
-    let (mut session, mut registry, ipc) = session_with_registry();
+    let (mut session, mut registry, ipc, _target) = session_with_registry();
     session
         .bind_target(
             "payments-worker-a",

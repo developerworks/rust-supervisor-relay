@@ -4,7 +4,7 @@
 
 第一版 relay(中继) 不引入持久化数据库. command audit(命令审计), event(事件), log(日志) 和 dropped count(丢弃数量) 先保留在内存结构和 `wss://` 消息流中.
 
-目标 IPC(进程间通信) 使用 Unix domain socket(Unix 域套接字) 加 newline-delimited JSON(按行分隔的 JSON 数据). 当前 crate(包) 提供真实 socket(套接字) 请求响应函数和可模拟 `TargetIpcPort`(目标进程通信端口). 因为 `/Users/0x00/Documents/rust-supervisor` 的目标侧 IPC server(进程间通信服务端) 不在本轮写入范围内, 集成测试通过 mockable IPC(可模拟进程间通信) 验证 relay(中继) 的安全顺序和转发边界.
+目标 IPC(进程间通信) 使用 Unix domain socket(Unix 域套接字) 加 newline-delimited JSON(按行分隔的 JSON 数据). 当前 crate(包) 使用 `UnixNdjsonIpcClient`(Unix 按行 JSON 进程间通信客户端) 作为 `TargetIpcPort`(目标进程通信端口) 的真实实现. 集成测试通过临时 `UnixListener`(Unix 监听器) 验证 relay(中继) 的安全顺序和转发边界.
 
 `wss://` listener(监听器) 使用 `tokio-rustls` 和 `tokio-tungstenite`. 当前最小实现完成 TLS(传输层安全协议) accept(接收) 和 WebSocket(网络套接字协议) upgrade(升级) 骨架, 业务 session(会话) 状态机已经在库层测试覆盖. 真实浏览器连接需要有效 server certificate(服务端证书), private key(私钥) 和 client CA(客户端证书颁发机构).
 
