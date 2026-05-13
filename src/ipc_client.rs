@@ -312,6 +312,7 @@ impl UnixNdjsonIpcClient {
                     "command_id": command.command_id,
                     "correlation_id": command.correlation_id,
                     "target_id": command.target_id,
+                    "command": command.command,
                     "target": {
                         "child_path": command.target.child_path
                     },

@@ -2,6 +2,7 @@ target/
 *.log
 .env
 .env.*
+examples/certs/
 *.rs.bk
 .DS_Store
 debug/

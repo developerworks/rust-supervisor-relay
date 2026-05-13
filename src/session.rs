@@ -12,7 +12,7 @@ use crate::audit::AuditRecorder;
 use crate::auth::RemoteIdentity;
 use crate::command::{ClientCommand, ControlCommandResult, prepare_client_command};
 use crate::error::{RelayError, RelayResult};
-use crate::ipc_client::{DashboardState, TargetIpcPort};
+use crate::ipc_client::TargetIpcPort;
 use crate::registry::{ConnectionState, TargetProcessRegistry, VisibleTarget};
 
 /// `TransportSecurity` represents the external protocol security level of a remote connection.
@@ -186,8 +186,8 @@ pub enum ServerMessage {
     State {
         /// `target_id` is the target process identity.
         target_id: String,
-        /// `state` is the current target process view.
-        state: DashboardState,
+        /// `state` is the current target process dashboard payload.
+        state: serde_json::Value,
     },
     /// `Event` is an active event from the target process.
     Event {
@@ -488,7 +488,7 @@ impl DashboardSession {
         self.bound_targets.insert(target_id.to_owned());
         self.outbox.push(ServerMessage::State {
             target_id: target_id.to_owned(),
-            state,
+            state: state.payload,
         });
         self.last_seen_at = now;
         Ok(())
