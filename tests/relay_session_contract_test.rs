@@ -1,6 +1,8 @@
 mod support;
 
+use rust_supervisor_relay::audit::AuditRecorder;
 use rust_supervisor_relay::auth::RemoteIdentity;
+use rust_supervisor_relay::command::{ClientCommand, CommandTarget, ControlCommandName};
 use rust_supervisor_relay::config::DashboardRelayConfig;
 use rust_supervisor_relay::ipc_client::UnixNdjsonIpcClient;
 use rust_supervisor_relay::registration::{RegistrationRequest, SupportedCommand};
@@ -87,6 +89,21 @@ fn identity() -> RemoteIdentity {
         OffsetDateTime::UNIX_EPOCH,
     )
     .expect("identity should validate")
+}
+
+fn restart_command() -> ClientCommand {
+    ClientCommand {
+        command_id: "cmd-refresh-state".to_owned(),
+        correlation_id: None,
+        target_id: "payments-worker-a".to_owned(),
+        command: ControlCommandName::RestartChild,
+        target: CommandTarget {
+            child_path: Some("/root/payment_loop".to_owned()),
+        },
+        reason: "operator requested restart after upstream recovery".to_owned(),
+        confirmed: false,
+        requested_by: None,
+    }
 }
 
 #[test]
@@ -178,4 +195,66 @@ fn auto_bind_phase_allows_any_active_target_without_ui_permission_check() {
         .expect("current phase binds any active target");
 
     assert!(session.is_bound("orders-worker-a"));
+}
+
+#[test]
+fn command_result_is_followed_by_refreshed_state() {
+    let payments_target = ProtocolTestTarget::start("payments-worker-a");
+    let orders_target = ProtocolTestTarget::start("orders-worker-a");
+    let mut registry = registry_with_two_targets(&payments_target, &orders_target);
+    let ipc = UnixNdjsonIpcClient;
+    let mut audit = AuditRecorder::default();
+    let mut session = DashboardSession::establish(
+        identity(),
+        &registry,
+        TransportSecurity::Wss,
+        OffsetDateTime::UNIX_EPOCH,
+    )
+    .expect("wss session should establish");
+
+    session
+        .bind_target(
+            "payments-worker-a",
+            &mut registry,
+            &ipc,
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .expect("authorized target should bind");
+    session.drain_outbox();
+
+    let result = session
+        .handle_command(
+            restart_command(),
+            &mut registry,
+            &ipc,
+            &mut audit,
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .expect("authorized command should forward");
+
+    assert_eq!(result.status, "completed");
+
+    let command_index = session
+        .outbox()
+        .iter()
+        .position(|message| matches!(message, ServerMessage::CommandResult { target_id, .. } if target_id == "payments-worker-a"))
+        .expect("command result should be sent");
+    let state_index = session
+        .outbox()
+        .iter()
+        .position(|message| matches!(message, ServerMessage::State { target_id, .. } if target_id == "payments-worker-a"))
+        .expect("fresh state should be sent after command result");
+
+    assert!(state_index > command_index);
+    match &session.outbox()[state_index] {
+        ServerMessage::State { state, .. } => {
+            assert_eq!(
+                state
+                    .get("state_generation")
+                    .and_then(serde_json::Value::as_u64),
+                Some(42)
+            );
+        }
+        _ => unreachable!(),
+    }
 }

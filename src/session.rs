@@ -546,7 +546,35 @@ impl DashboardSession {
             target_id: result.target_id.clone(),
             result: result.clone(),
         });
+        if result.accepted && result.status == "completed" {
+            let target_id = result.target_id.clone();
+            if self
+                .refresh_target_state_after_command(&target_id, registry, ipc, now)
+                .is_err()
+            {
+                let _ = self.accept_connection_state(&target_id, ConnectionState::Unavailable);
+            }
+        }
         Ok(result)
+    }
+
+    fn refresh_target_state_after_command(
+        &mut self,
+        target_id: &str,
+        registry: &mut TargetProcessRegistry,
+        ipc: &impl TargetIpcPort,
+        now: OffsetDateTime,
+    ) -> RelayResult<()> {
+        let registration = registry.registration(target_id)?.clone();
+        let state = ipc.connect_state(&registration, now).inspect_err(|error| {
+            registry.mark_unavailable(target_id, error.message.clone(), now);
+        })?;
+        registry.mark_connected(target_id, state.state_generation, now)?;
+        self.outbox.push(ServerMessage::State {
+            target_id: target_id.to_owned(),
+            state: state.payload,
+        });
+        Ok(())
     }
 
     /// Reads session output messages.
