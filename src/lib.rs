@@ -1,4 +1,4 @@
-//! rust-supervisor-relay crate(包) 提供 dashboard relay(看板中继) 的独立实现入口.
+//! The rust-supervisor-relay crate provides the standalone dashboard relay implementation entry point.
 
 pub mod audit;
 pub mod auth;

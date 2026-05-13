@@ -1,4 +1,4 @@
-//! relay binary(中继二进制入口) 只负责加载配置并启动 relay runtime(中继运行时).
+//! The relay binary only loads configuration and starts the relay runtime.
 
 use std::collections::HashMap;
 use std::io::BufReader;
@@ -32,10 +32,10 @@ use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 
 type SharedRegistry = Arc<Mutex<TargetProcessRegistry>>;
 
-/// 启动 relay binary(中继二进制入口).
+/// Starts the relay binary.
 ///
-/// 参数来自 process args(进程参数).
-/// 返回值是 process exit code(进程退出代码).
+/// Parameters come from process arguments.
+/// The return value is the process exit code.
 #[tokio::main]
 async fn main() -> ExitCode {
     match run().await {
@@ -47,10 +47,10 @@ async fn main() -> ExitCode {
     }
 }
 
-/// 运行 relay(中继) 配置加载和监听入口.
+/// Runs the relay configuration loading and listening entry point.
 ///
-/// 参数为空, 因为命令行参数通过 `std::env::args`(标准环境参数) 读取.
-/// 返回值在配置检查或运行循环正常结束时为成功.
+/// This function has no parameters because command-line arguments are read through `std::env::args`.
+/// The return value is successful when configuration checks or the run loop finish normally.
 async fn run() -> RelayResult<()> {
     let args = Args::parse(std::env::args().skip(1).collect())?;
     let config = DashboardRelayConfig::load_from_path(&args.config_path)?;
@@ -476,11 +476,11 @@ where
     Ok(())
 }
 
-/// 构建 mTLS(双向传输层安全协议认证) 或可信代理模式的 rustls(安全传输库) 服务端配置.
+/// Builds the rustls server configuration for mTLS or trusted-proxy mode.
 ///
-/// 参数 `tls` 是 TLS(传输层安全协议) 配置.
-/// 参数 `trusted_proxy_enabled` 表示是否由可信代理完成客户端身份验证.
-/// 返回值是可交给 `TlsAcceptor`(传输层安全协议接收器) 的服务端配置.
+/// The `tls` parameter is the TLS configuration.
+/// The `trusted_proxy_enabled` parameter indicates whether client identity verification is completed by a trusted proxy.
+/// The return value is the server configuration that can be passed to `TlsAcceptor`.
 fn build_server_config(tls: &TlsConfig, trusted_proxy_enabled: bool) -> RelayResult<ServerConfig> {
     let certs = load_certs(&tls.certificate_path)?;
     let private_key = load_private_key(&tls.private_key_path)?;
@@ -538,10 +538,10 @@ fn build_server_config(tls: &TlsConfig, trusted_proxy_enabled: bool) -> RelayRes
     }
 }
 
-/// 从 PEM(隐私增强邮件格式) 文件读取证书链.
+/// Reads a certificate chain from a PEM file.
 ///
-/// 参数 `path` 是证书文件路径.
-/// 返回值是 rustls(安全传输库) 证书链.
+/// The `path` parameter is the certificate file path.
+/// The return value is the rustls certificate chain.
 fn load_certs(
     path: &Path,
 ) -> RelayResult<Vec<tokio_rustls::rustls::pki_types::CertificateDer<'static>>> {
@@ -568,10 +568,10 @@ fn load_certs(
         })
 }
 
-/// 从 PEM(隐私增强邮件格式) 文件读取私钥.
+/// Reads a private key from a PEM file.
 ///
-/// 参数 `path` 是私钥文件路径.
-/// 返回值是 rustls(安全传输库) 私钥.
+/// The `path` parameter is the private key file path.
+/// The return value is the rustls private key.
 fn load_private_key(
     path: &Path,
 ) -> RelayResult<tokio_rustls::rustls::pki_types::PrivateKeyDer<'static>> {
@@ -606,19 +606,19 @@ fn load_private_key(
         })
 }
 
-/// `Args`(参数) 保存 relay binary(中继二进制入口) 的命令行参数.
+/// `Args` stores command-line arguments for the relay binary.
 struct Args {
-    /// `config_path`(配置路径) 是 relay(中继) YAML(配置文件格式) 文件路径.
+    /// `config_path` is the relay YAML file path.
     config_path: PathBuf,
-    /// `check_only`(只检查) 表示只校验配置并退出.
+    /// `check_only` indicates that the binary should validate configuration and exit.
     check_only: bool,
 }
 
 impl Args {
-    /// 解析命令行参数.
+    /// Parses command-line arguments.
     ///
-    /// 参数 `args` 是去掉程序名后的参数列表.
-    /// 返回值是解析后的 `Args`(参数), 或者结构化参数错误.
+    /// The `args` parameter is the argument list without the program name.
+    /// The return value is the parsed `Args`, or a structured argument error.
     fn parse(args: Vec<String>) -> RelayResult<Self> {
         let mut config_path = None;
         let mut check_only = false;

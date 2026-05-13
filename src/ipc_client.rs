@@ -1,6 +1,6 @@
-//! ipc_client(进程间通信客户端) 模块封装 relay(中继) 到目标进程的本机 IPC(进程间通信) 边界.
+//! The ipc_client module encapsulates the local IPC boundary from the relay to target processes.
 //!
-//! 生产路径可以使用 Unix domain socket(Unix 域套接字) 加 newline-delimited JSON(按行分隔的 JSON 数据).
+//! Production paths can use Unix domain sockets with newline-delimited JSON.
 
 use std::path::Path;
 
@@ -15,48 +15,48 @@ use crate::command::{ControlCommandName, ControlCommandResult, PreparedCommand};
 use crate::error::{RelayError, RelayResult};
 use crate::registry::TargetProcessRegistration;
 
-/// `DashboardState`(看板状态) 是 relay(中继) 从目标 IPC(进程间通信) 读取并转发的最小状态模型.
+/// `DashboardState` is the minimal state model that the relay reads from target IPC and forwards.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DashboardState {
-    /// `target_id`(目标标识) 是目标进程身份.
+    /// `target_id` is the target process identity.
     pub target_id: String,
-    /// `state_generation`(状态代次) 是目标进程内单调增长的状态版本.
+    /// `state_generation` is the monotonically increasing state version inside the target process.
     pub state_generation: u64,
-    /// `generated_at`(生成时间) 是状态生成时间.
+    /// `generated_at` is the state generation time.
     pub generated_at: OffsetDateTime,
-    /// `payload`(载荷) 保存目标侧完整监督树和运行时状态.
+    /// `payload` stores the complete target-side supervision tree and runtime state.
     pub payload: serde_json::Value,
 }
 
-/// `TargetIpcPort`(目标进程通信端口) 定义 relay(中继) 需要的 IPC(进程间通信) 能力.
+/// `TargetIpcPort` defines the IPC capabilities required by the relay.
 pub trait TargetIpcPort {
-    /// 连接目标 IPC(进程间通信) 并读取 state(状态).
+    /// Connects to target IPC and reads state.
     ///
-    /// 参数 `registration` 是目标进程活动注册.
-    /// 参数 `now` 是连接时间.
-    /// 返回值是目标进程状态, 或者结构化 IPC(进程间通信) 错误.
+    /// The `registration` parameter is the active target process registration.
+    /// The `now` parameter is the connection time.
+    /// The return value is the target process state, or a structured IPC error.
     fn connect_state(
         &self,
         registration: &TargetProcessRegistration,
         now: OffsetDateTime,
     ) -> RelayResult<DashboardState>;
 
-    /// 在目标 IPC(进程间通信) 上建立 event/log subscription(事件日志订阅).
+    /// Establishes an event and log subscription on target IPC.
     ///
-    /// 参数 `registration` 是目标进程活动注册.
-    /// 参数 `now` 是订阅时间.
-    /// 返回值在订阅建立成功时为空.
+    /// The `registration` parameter is the active target process registration.
+    /// The `now` parameter is the subscription time.
+    /// The return value is empty when the subscription is established successfully.
     fn subscribe_event_log(
         &self,
         registration: &TargetProcessRegistration,
         now: OffsetDateTime,
     ) -> RelayResult<()>;
 
-    /// 转发控制命令到目标 IPC(进程间通信).
+    /// Forwards a control command to target IPC.
     ///
-    /// 参数 `command` 是已经校验并绑定身份的控制命令.
-    /// 参数 `now` 是转发时间.
-    /// 返回值是目标进程命令结果.
+    /// The `command` parameter is the validated control command with bound identity.
+    /// The `now` parameter is the forwarding time.
+    /// The return value is the target process command result.
     fn forward_command(
         &self,
         registration: &TargetProcessRegistration,
@@ -168,16 +168,16 @@ impl TargetIpcPort for UnixNdjsonIpcClient {
     }
 }
 
-/// `UnixNdjsonIpcClient`(Unix 按行 JSON 进程间通信客户端) 提供真实目标 IPC(进程间通信) 的最小请求响应能力.
+/// `UnixNdjsonIpcClient` provides minimal request-response capability for real target IPC.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct UnixNdjsonIpcClient;
 
 impl UnixNdjsonIpcClient {
-    /// 发送一条 IPC(进程间通信) 请求并读取一行响应.
+    /// Sends one IPC request and reads one response line.
     ///
-    /// 参数 `ipc_path` 是目标进程 Unix domain socket(Unix 域套接字) 路径.
-    /// 参数 `request` 是要写入的 JSON(数据交换格式) 对象.
-    /// 返回值是目标进程响应 JSON(数据交换格式).
+    /// The `ipc_path` parameter is the target process Unix domain socket path.
+    /// The `request` parameter is the JSON object to write.
+    /// The return value is the target process response JSON.
     pub async fn request_json(
         &self,
         ipc_path: &Path,
@@ -236,11 +236,11 @@ impl UnixNdjsonIpcClient {
         })
     }
 
-    /// 发送一条 IPC(进程间通信) 请求并同步等待响应.
+    /// Sends one IPC request and synchronously waits for the response.
     ///
-    /// 参数 `ipc_path` 是目标进程 Unix domain socket(Unix 域套接字) 路径.
-    /// 参数 `request` 是要写入的 JSON(数据交换格式) 对象.
-    /// 返回值是目标进程响应 JSON(数据交换格式).
+    /// The `ipc_path` parameter is the target process Unix domain socket path.
+    /// The `request` parameter is the JSON object to write.
+    /// The return value is the target process response JSON.
     pub fn request_json_blocking(
         &self,
         ipc_path: &Path,
@@ -266,12 +266,12 @@ impl UnixNdjsonIpcClient {
         runtime.block_on(self.request_json(ipc_path, request))
     }
 
-    /// 发送订阅请求到目标 IPC(进程间通信).
+    /// Sends a subscription request to target IPC.
     ///
-    /// 参数 `ipc_path` 是目标进程 Unix domain socket(Unix 域套接字) 路径.
-    /// 参数 `target_id` 是目标进程标识.
-    /// 参数 `method` 是订阅方法.
-    /// 返回值在订阅成功时为空.
+    /// The `ipc_path` parameter is the target process Unix domain socket path.
+    /// The `target_id` parameter is the target process identifier.
+    /// The `method` parameter is the subscription method.
+    /// The return value is empty when subscription succeeds.
     fn subscription_request(
         &self,
         ipc_path: &Path,
@@ -292,11 +292,11 @@ impl UnixNdjsonIpcClient {
         response_result(response).map(|_| ())
     }
 
-    /// 转发控制命令到目标 IPC(进程间通信).
+    /// Forwards a control command to target IPC.
     ///
-    /// 参数 `command` 是已经校验并绑定身份的控制命令.
-    /// 参数 `now` 是转发时间.
-    /// 返回值是目标进程响应 JSON(数据交换格式).
+    /// The `command` parameter is the validated control command with bound identity.
+    /// The `now` parameter is the forwarding time.
+    /// The return value is the target process response JSON.
     fn forward_command_request(
         &self,
         registration: &TargetProcessRegistration,
@@ -325,18 +325,18 @@ impl UnixNdjsonIpcClient {
     }
 }
 
-/// 创建 IPC(进程间通信) 请求标识.
+/// Creates an IPC request identifier.
 ///
-/// 参数为空, 因为请求标识由 relay(中继) 本地生成.
-/// 返回值是字符串形式的 UUID(通用唯一标识).
+/// This function has no parameters because the request identifier is generated locally by the relay.
+/// The return value is the UUID string.
 fn request_id() -> String {
     Uuid::new_v4().to_string()
 }
 
-/// 解析目标 IPC(进程间通信) 响应中的成功结果.
+/// Parses the successful result from a target IPC response.
 ///
-/// 参数 `response` 是目标进程响应 JSON(数据交换格式).
-/// 返回值是 `result` 字段, 或者结构化错误.
+/// The `response` parameter is the target process response JSON.
+/// The return value is the `result` field, or a structured error.
 fn response_result(response: serde_json::Value) -> RelayResult<serde_json::Value> {
     if response
         .get("ok")
@@ -386,10 +386,10 @@ fn response_result(response: serde_json::Value) -> RelayResult<serde_json::Value
     ))
 }
 
-/// 返回控制命令对应的 IPC(进程间通信) 方法.
+/// Returns the IPC method for a control command.
 ///
-/// 参数 `command` 是 relay(中继) 已接受的命令名称.
-/// 返回值是目标进程 IPC(进程间通信) 方法名.
+/// The `command` parameter is the command name accepted by the relay.
+/// The return value is the target process IPC method name.
 fn command_method(command: ControlCommandName) -> &'static str {
     match command {
         ControlCommandName::RestartChild => "command.restart_child",

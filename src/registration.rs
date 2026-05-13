@@ -1,6 +1,6 @@
-//! registration(注册) 模块定义目标进程提交给 relay(中继) 的运行时注册载荷.
+//! The registration module defines runtime registration payloads submitted by target processes to the relay.
 //!
-//! 目标进程完成本机 IPC(进程间通信) 就绪后, 才能通过本模块的格式提交 dynamic registration(动态注册).
+//! A target process can submit dynamic registration in this module's format after local IPC is ready.
 
 use std::path::PathBuf;
 
@@ -11,25 +11,25 @@ use tokio::net::{UnixListener, UnixStream};
 use crate::config::RegistrationPolicy;
 use crate::error::{RelayError, RelayResult};
 
-/// `SupportedCommand`(支持的命令) 描述 target(目标) 可以执行的命令.
+/// `SupportedCommand` describes a command that a target can execute.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SupportedCommand {
-    /// `name`(名称) 是 wire(传输层) 命令名称.
+    /// `name` is the wire command name.
     pub name: String,
-    /// `idempotent`(幂等) 表示命令是否允许自动重试或复用标识.
+    /// `idempotent` indicates whether the command allows automatic retry or identifier reuse.
     pub idempotent: bool,
-    /// `timeout_seconds`(超时秒数) 是 relay(中继) 等待命令结果的时间.
+    /// `timeout_seconds` is the time the relay waits for the command result.
     pub timeout_seconds: u64,
 }
 
 impl SupportedCommand {
-    /// 创建一个支持命令声明.
+    /// Creates a supported command declaration.
     ///
-    /// 参数 `name` 是 wire(传输层) 命令名称.
-    /// 参数 `idempotent` 表示命令是否幂等.
-    /// 参数 `timeout_seconds` 是命令超时秒数.
-    /// 返回值是 `SupportedCommand`(支持的命令).
+    /// The `name` parameter is the wire command name.
+    /// The `idempotent` parameter indicates whether the command is idempotent.
+    /// The `timeout_seconds` parameter is the command timeout in seconds.
+    /// The return value is the `SupportedCommand`.
     pub fn new(name: impl Into<String>, idempotent: bool, timeout_seconds: u64) -> Self {
         Self {
             name: name.into(),
@@ -39,7 +39,7 @@ impl SupportedCommand {
     }
 }
 
-/// `RegistrationRequest`(注册请求) 表达一个目标进程的运行时注册载荷.
+/// `RegistrationRequest` represents the runtime registration payload for one target process.
 ///
 /// # Examples
 ///
@@ -59,27 +59,27 @@ impl SupportedCommand {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RegistrationRequest {
-    /// `target_id`(目标标识) 是目标进程稳定身份.
+    /// `target_id` is the stable target process identity.
     pub target_id: String,
-    /// `display_name`(显示名称) 是 dashboard(看板) 展示给操作者的名称.
+    /// `display_name` is the name that the dashboard shows to operators.
     pub display_name: String,
-    /// `ipc_path`(进程间通信路径) 是目标进程已经打开的 Unix domain socket(Unix 域套接字) 路径.
+    /// `ipc_path` is the Unix domain socket path already opened by the target process.
     pub ipc_path: PathBuf,
-    /// `lease_seconds`(租约秒数) 是本次注册的有效时间.
+    /// `lease_seconds` is the validity window for this registration.
     pub lease_seconds: u64,
-    /// `supported_commands`(支持的命令) 是 target(目标) 声明可执行的命令集合.
+    /// `supported_commands` is the command set that the target declares as executable.
     pub supported_commands: Vec<SupportedCommand>,
 }
 
 impl RegistrationRequest {
-    /// 创建一个目标进程注册请求.
+    /// Creates a target process registration request.
     ///
-    /// 参数 `target_id` 是目标进程稳定身份.
-    /// 参数 `display_name` 是 dashboard(看板) 显示名称.
-    /// 参数 `ipc_path` 是目标进程本机 IPC path(进程间通信路径).
-    /// 参数 `lease_seconds` 是注册租约秒数.
-    /// 参数 `supported_commands` 是 target(目标) 支持的命令.
-    /// 返回值是 `RegistrationRequest`(注册请求).
+    /// The `target_id` parameter is the stable target process identity.
+    /// The `display_name` parameter is the dashboard display name.
+    /// The `ipc_path` parameter is the target process local IPC path.
+    /// The `lease_seconds` parameter is the registration lease duration in seconds.
+    /// The `supported_commands` parameter is the command set supported by the target.
+    /// The return value is the `RegistrationRequest`.
     pub fn new(
         target_id: impl Into<String>,
         display_name: impl Into<String>,
@@ -97,10 +97,10 @@ impl RegistrationRequest {
     }
 }
 
-/// 从 newline-delimited JSON(按行分隔的 JSON 数据) 解析注册请求.
+/// Decodes a registration request from newline-delimited JSON.
 ///
-/// 参数 `line` 是单行 JSON(数据交换格式) 文本.
-/// 返回值是注册请求, 或者结构化解析错误.
+/// The `line` parameter is one line of JSON text.
+/// The return value is the registration request, or a structured parse error.
 pub fn decode_registration_line(line: &str) -> RelayResult<RegistrationRequest> {
     serde_json::from_str(line).map_err(|error| {
         RelayError::new(
@@ -113,27 +113,27 @@ pub fn decode_registration_line(line: &str) -> RelayResult<RegistrationRequest> 
     })
 }
 
-/// `RegistrationListener`(注册监听器) 接收目标进程 dynamic registration(动态注册).
+/// `RegistrationListener` receives dynamic registrations from target processes.
 pub struct RegistrationListener {
-    /// `listener`(监听器) 是本机 Unix domain socket(Unix 域套接字) 监听对象.
+    /// `listener` is the local Unix domain socket listener.
     listener: UnixListener,
 }
 
-/// `AcceptedRegistration`(已接收注册) 保存注册载荷和本机提交者身份.
+/// `AcceptedRegistration` stores the registration payload and local submitter identity.
 pub struct AcceptedRegistration {
-    /// `request`(请求) 是目标进程提交的注册声明.
+    /// `request` is the registration declaration submitted by the target process.
     pub request: RegistrationRequest,
-    /// `owner_identity`(所有者身份) 是 Unix peer credential(Unix 对端凭据) 派生值.
+    /// `owner_identity` is derived from the Unix peer credential.
     pub owner_identity: String,
-    /// `stream`(流) 用于写回 registration ack(注册确认响应).
+    /// `stream` is used to write the registration acknowledgement.
     pub stream: UnixStream,
 }
 
 impl RegistrationListener {
-    /// 在注册策略指定的路径上绑定注册入口.
+    /// Binds the registration entry point at the path specified by the registration policy.
     ///
-    /// 参数 `policy` 是注册策略.
-    /// 返回值是已经绑定的 `RegistrationListener`(注册监听器).
+    /// The `policy` parameter is the registration policy.
+    /// The return value is the bound `RegistrationListener`.
     pub async fn bind(policy: &RegistrationPolicy) -> RelayResult<Self> {
         if policy.listen_path.exists() {
             std::fs::remove_file(&policy.listen_path).map_err(|error| {
@@ -171,10 +171,10 @@ impl RegistrationListener {
         Ok(Self { listener })
     }
 
-    /// 接收一个注册请求.
+    /// Accepts one registration request.
     ///
-    /// 参数为空, 因为监听器已经保存注册入口.
-    /// 返回值是下一条 `RegistrationRequest`(注册请求).
+    /// This method has no parameters because the listener already stores the registration entry point.
+    /// The return value is the next `RegistrationRequest`.
     pub async fn accept_once(&self) -> RelayResult<RegistrationRequest> {
         let (stream, _) = self.listener.accept().await.map_err(|error| {
             RelayError::new(
@@ -188,10 +188,10 @@ impl RegistrationListener {
         read_registration_from_stream(stream).await
     }
 
-    /// 接收一个注册请求并保留响应 stream(流).
+    /// Accepts one registration request and preserves the response stream.
     ///
-    /// 参数为空, 因为监听器已经保存注册入口.
-    /// 返回值是注册请求, 本机 owner identity(所有者身份) 和响应流.
+    /// This method has no parameters because the listener already stores the registration entry point.
+    /// The return value is the registration request, local owner identity, and response stream.
     pub async fn accept_registration(&self) -> RelayResult<AcceptedRegistration> {
         let (stream, _) = self.listener.accept().await.map_err(|error| {
             RelayError::new(
@@ -212,10 +212,10 @@ impl RegistrationListener {
     }
 }
 
-/// 从 UnixStream(Unix 流) 读取一条注册请求.
+/// Reads one registration request from a `UnixStream`.
 ///
-/// 参数 `stream` 是目标进程写入注册 JSON(数据交换格式) 的本机连接.
-/// 返回值是解析后的注册请求.
+/// The `stream` parameter is the local connection where the target process writes registration JSON.
+/// The return value is the decoded registration request.
 pub async fn read_registration_from_stream(stream: UnixStream) -> RelayResult<RegistrationRequest> {
     read_registration_request_and_stream(stream)
         .await

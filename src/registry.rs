@@ -1,6 +1,6 @@
-//! registry(注册表) 模块维护目标进程 active registration(活动注册) 和连接状态.
+//! The registry module maintains target process active registrations and connection state.
 //!
-//! 注册只把目标放入可见列表. 只有已认证 session(会话) 绑定目标后, 才允许进入 IPC(进程间通信) 连接.
+//! Registration only places targets into the visible list. IPC connection is allowed only after an authenticated session binds the target.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -13,135 +13,135 @@ use crate::config::RegistrationPolicy;
 use crate::error::{RelayError, RelayResult};
 use crate::registration::{RegistrationRequest, SupportedCommand};
 
-/// `RegistrationState`(注册状态) 表示目标进程注册租约的状态.
+/// `RegistrationState` represents the state of a target process registration lease.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RegistrationState {
-    /// `Active`(活动) 表示注册租约仍然有效.
+    /// `Active` indicates that the registration lease is still valid.
     Active,
-    /// `Rejected`(已拒绝) 表示注册载荷没有进入活动表.
+    /// `Rejected` indicates that the registration payload did not enter the active table.
     Rejected,
-    /// `Expired`(已过期) 表示租约已经失效.
+    /// `Expired` indicates that the lease has expired.
     Expired,
 }
 
-/// `ConnectionState`(连接状态) 表示 relay(中继) 与目标 IPC(进程间通信) 的生命周期.
+/// `ConnectionState` represents the lifecycle between the relay and target IPC.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConnectionState {
-    /// `Registered`(已注册) 表示目标只进入注册表, 尚未连接 IPC(进程间通信).
+    /// `Registered` indicates that the target only entered the registry and IPC has not connected yet.
     Registered,
-    /// `Disconnected`(已断开) 表示目标没有活动 IPC(进程间通信) 连接.
+    /// `Disconnected` indicates that the target has no active IPC connection.
     Disconnected,
-    /// `Connecting`(连接中) 表示已认证 session(会话) 正在触发 IPC(进程间通信) 连接.
+    /// `Connecting` indicates that an authenticated session is triggering IPC connection.
     Connecting,
-    /// `Connected`(已连接) 表示 IPC(进程间通信) 握手和 state(状态) 读取成功.
+    /// `Connected` indicates that IPC handshake and state read succeeded.
     Connected,
-    /// `Reconnecting`(重连中) 表示连接失败后正在重试.
+    /// `Reconnecting` indicates that retry is in progress after connection failure.
     Reconnecting,
-    /// `Unavailable`(不可用) 表示目标 IPC(进程间通信) 当前不可达.
+    /// `Unavailable` indicates that target IPC is currently unreachable.
     Unavailable,
-    /// `Expired`(已过期) 表示目标注册租约已经失效.
+    /// `Expired` indicates that the target registration lease has expired.
     Expired,
 }
 
-/// `TargetProcessRegistration`(目标进程注册) 是注册表保存的活动记录.
+/// `TargetProcessRegistration` is the active record stored by the registry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TargetProcessRegistration {
-    /// `target_id`(目标标识) 是目标进程稳定身份.
+    /// `target_id` is the stable target process identity.
     pub target_id: String,
-    /// `display_name`(显示名称) 是 dashboard(看板) 展示名称.
+    /// `display_name` is the dashboard display name.
     pub display_name: String,
-    /// `ipc_path`(进程间通信路径) 是目标进程本机 socket(套接字) 路径.
+    /// `ipc_path` is the target process local socket path.
     pub ipc_path: PathBuf,
-    /// `ipc_path_key`(进程间通信路径键) 是规范化后的冲突检测键.
+    /// `ipc_path_key` is the normalized conflict detection key.
     pub ipc_path_key: String,
-    /// `owner_identity`(所有者身份) 是提交注册的本机进程身份.
+    /// `owner_identity` is the local process identity that submitted registration.
     pub owner_identity: String,
-    /// `lease_seconds`(租约秒数) 是注册有效期.
+    /// `lease_seconds` is the registration validity duration.
     pub lease_seconds: u64,
-    /// `supported_commands`(支持的命令) 是 target(目标) 声明可执行的命令集合.
+    /// `supported_commands` is the command set declared executable by the target.
     pub supported_commands: Vec<SupportedCommand>,
-    /// `registered_at`(注册时间) 是首次进入注册表的时间.
+    /// `registered_at` is the time when the record first entered the registry.
     pub registered_at: OffsetDateTime,
-    /// `renewed_at`(续约时间) 是最近一次续约时间.
+    /// `renewed_at` is the latest renewal time.
     pub renewed_at: OffsetDateTime,
-    /// `expires_at`(过期时间) 是当前租约失效时间.
+    /// `expires_at` is the current lease expiration time.
     pub expires_at: OffsetDateTime,
-    /// `registration_state`(注册状态) 是当前租约状态.
+    /// `registration_state` is the current lease state.
     pub registration_state: RegistrationState,
-    /// `last_rejection`(最近拒绝) 保存最近一次拒绝原因.
+    /// `last_rejection` stores the latest rejection reason.
     pub last_rejection: Option<String>,
 }
 
-/// `TargetProcessConnection`(目标进程连接) 保存一个目标的 IPC(进程间通信) 连接状态.
+/// `TargetProcessConnection` stores IPC connection state for one target.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TargetProcessConnection {
-    /// `target_id`(目标标识) 是目标进程稳定身份.
+    /// `target_id` is the stable target process identity.
     pub target_id: String,
-    /// `ipc_path`(进程间通信路径) 是目标进程本机 socket(套接字) 路径.
+    /// `ipc_path` is the target process local socket path.
     pub ipc_path: PathBuf,
-    /// `state`(状态) 是当前连接生命周期.
+    /// `state` is the current connection lifecycle state.
     pub state: ConnectionState,
-    /// `last_error`(最近错误) 保存最近一次结构化错误.
+    /// `last_error` stores the latest structured error.
     pub last_error: Option<String>,
-    /// `last_state_generation`(最近状态代次) 保存已发送的 state(状态) 代次.
+    /// `last_state_generation` stores the state generation that has been sent.
     pub last_state_generation: Option<u64>,
-    /// `last_sequence`(最近序号) 保存已转发的事件 sequence(序号).
+    /// `last_sequence` stores the forwarded event sequence.
     pub last_sequence: Option<u64>,
-    /// `connected_at`(连接时间) 保存最近成功连接时间.
+    /// `connected_at` stores the latest successful connection time.
     pub connected_at: Option<OffsetDateTime>,
-    /// `updated_at`(更新时间) 保存状态最近变化时间.
+    /// `updated_at` stores the latest state change time.
     pub updated_at: OffsetDateTime,
 }
 
-/// `VisibleTarget`(可见目标) 是 session(会话) 首包发送给 dashboard(看板) 的目标摘要.
+/// `VisibleTarget` is the target summary sent to the dashboard in the first session payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VisibleTarget {
-    /// `target_id`(目标标识) 是目标进程稳定身份.
+    /// `target_id` is the stable target process identity.
     pub target_id: String,
-    /// `display_name`(显示名称) 是 dashboard(看板) 展示名称.
+    /// `display_name` is the dashboard display name.
     pub display_name: String,
-    /// `registration_state`(注册状态) 表达租约是否活动.
+    /// `registration_state` expresses whether the lease is active.
     pub registration_state: RegistrationState,
-    /// `connection_state`(连接状态) 表达 relay(中继) 是否已经连接 IPC(进程间通信).
+    /// `connection_state` expresses whether the relay has connected IPC.
     pub connection_state: ConnectionState,
-    /// `supported_commands`(支持的命令) 是 target(目标) 声明可执行的命令集合.
+    /// `supported_commands` is the command set declared executable by the target.
     pub supported_commands: Vec<SupportedCommand>,
 }
 
-/// `AvailabilitySummary`(可用性汇总) 保存多目标 partial availability(部分可用) 状态.
+/// `AvailabilitySummary` stores partial availability state across multiple targets.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AvailabilitySummary {
-    /// `total`(总数) 是注册表中所有目标数量.
+    /// `total` is the number of all targets in the registry.
     pub total: usize,
-    /// `registered`(已注册数量) 是尚未绑定连接的目标数量.
+    /// `registered` is the number of targets that have not yet bound a connection.
     pub registered: usize,
-    /// `connected`(已连接数量) 是 IPC(进程间通信) 已连接的目标数量.
+    /// `connected` is the number of targets with connected IPC.
     pub connected: usize,
-    /// `reconnecting`(重连中数量) 是正在重连的目标数量.
+    /// `reconnecting` is the number of targets currently reconnecting.
     pub reconnecting: usize,
-    /// `unavailable`(不可用数量) 是当前不可达的目标数量.
+    /// `unavailable` is the number of currently unreachable targets.
     pub unavailable: usize,
-    /// `expired`(已过期数量) 是租约过期的目标数量.
+    /// `expired` is the number of targets with expired leases.
     pub expired: usize,
 }
 
-/// `TargetProcessRegistry`(目标进程注册表) 保存 active registration(活动注册) 和连接状态.
+/// `TargetProcessRegistry` stores active registrations and connection state.
 pub struct TargetProcessRegistry {
-    /// `policy`(策略) 保存注册路径, IPC(进程间通信) 前缀和租约限制.
+    /// `policy` stores the registration path, IPC prefixes, and lease limits.
     policy: RegistrationPolicy,
-    /// `registrations`(注册记录) 通过 target id(目标标识) 查找活动记录.
+    /// `registrations` looks up active records by target id.
     registrations: HashMap<String, TargetProcessRegistration>,
-    /// `connections`(连接记录) 通过 target id(目标标识) 查找连接生命周期.
+    /// `connections` looks up connection lifecycles by target id.
     connections: HashMap<String, TargetProcessConnection>,
 }
 
 impl TargetProcessRegistry {
-    /// 创建目标进程注册表.
+    /// Creates a target process registry.
     ///
-    /// 参数 `policy` 是注册策略.
-    /// 返回值是空的注册表.
+    /// The `policy` parameter is the registration policy.
+    /// The return value is an empty registry.
     pub fn new(policy: RegistrationPolicy) -> Self {
         Self {
             policy,
@@ -150,12 +150,12 @@ impl TargetProcessRegistry {
         }
     }
 
-    /// 注册一个目标进程.
+    /// Registers one target process.
     ///
-    /// 参数 `request` 是目标进程提交的 dynamic registration(动态注册) 请求.
-    /// 参数 `owner_identity` 是提交注册的本机进程身份.
-    /// 参数 `now` 是 relay(中继) 接收注册的时间.
-    /// 返回值是活动注册记录, 或者结构化拒绝错误.
+    /// The `request` parameter is the dynamic registration request submitted by the target process.
+    /// The `owner_identity` parameter is the local process identity that submitted registration.
+    /// The `now` parameter is the time when the relay receives registration.
+    /// The return value is the active registration record, or a structured rejection error.
     pub fn register(
         &mut self,
         request: RegistrationRequest,
@@ -275,11 +275,11 @@ impl TargetProcessRegistry {
         Ok(registration)
     }
 
-    /// 续期一个已注册目标.
+    /// Renews one registered target.
     ///
-    /// 参数 `target_id` 是目标进程标识.
-    /// 参数 `now` 是续期时间.
-    /// 返回值在续期成功时为空.
+    /// The `target_id` parameter is the target process identifier.
+    /// The `now` parameter is the renewal time.
+    /// The return value is empty when renewal succeeds.
     pub fn renew(&mut self, target_id: &str, now: OffsetDateTime) -> RelayResult<()> {
         let registration = self.registrations.get_mut(target_id).ok_or_else(|| {
             RelayError::for_target(
@@ -296,10 +296,10 @@ impl TargetProcessRegistry {
         Ok(())
     }
 
-    /// 标记已经过期的注册.
+    /// Marks expired registrations.
     ///
-    /// 参数 `now` 是当前时间.
-    /// 返回值是本次被标记为 expired(已过期) 的目标数量.
+    /// The `now` parameter is the current time.
+    /// The return value is the number of targets marked expired by this call.
     pub fn expire_leases(&mut self, now: OffsetDateTime) -> usize {
         let mut expired = 0;
         for registration in self.registrations.values_mut() {
@@ -317,10 +317,10 @@ impl TargetProcessRegistry {
         expired
     }
 
-    /// 返回 active registration(活动注册) 的数量.
+    /// Returns the active registration count.
     ///
-    /// 参数 `now` 是当前时间.
-    /// 返回值是未过期且状态为 active(活动) 的注册数量.
+    /// The `now` parameter is the current time.
+    /// The return value is the number of non-expired registrations whose state is active.
     pub fn active_registration_count(&self, now: OffsetDateTime) -> usize {
         self.registrations
             .values()
@@ -331,10 +331,10 @@ impl TargetProcessRegistry {
             .count()
     }
 
-    /// 返回当前活动目标.
+    /// Returns current active targets.
     ///
-    /// 参数 `now` 是当前时间.
-    /// 返回值是当前 session(会话) 自动绑定的活动目标列表.
+    /// The `now` parameter is the current time.
+    /// The return value is the active target list automatically bound by the current session.
     pub fn active_targets(&self, now: OffsetDateTime) -> Vec<VisibleTarget> {
         self.registrations
             .values()
@@ -356,10 +356,10 @@ impl TargetProcessRegistry {
             .collect()
     }
 
-    /// 读取一个活动注册.
+    /// Reads one active registration.
     ///
-    /// 参数 `target_id` 是目标进程标识.
-    /// 返回值是目标注册记录, 或者未注册错误.
+    /// The `target_id` parameter is the target process identifier.
+    /// The return value is the target registration record, or a not-registered error.
     pub fn registration(&self, target_id: &str) -> RelayResult<&TargetProcessRegistration> {
         self.registrations.get(target_id).ok_or_else(|| {
             RelayError::for_target(
@@ -372,11 +372,11 @@ impl TargetProcessRegistry {
         })
     }
 
-    /// 判断目标是否处于活动状态.
+    /// Determines whether the target is active.
     ///
-    /// 参数 `target_id` 是目标进程标识.
-    /// 参数 `now` 是当前时间.
-    /// 返回值在目标活动时为成功.
+    /// The `target_id` parameter is the target process identifier.
+    /// The `now` parameter is the current time.
+    /// The return value is successful when the target is active.
     pub fn ensure_target_active(&self, target_id: &str, now: OffsetDateTime) -> RelayResult<()> {
         let registration = self.registration(target_id)?;
         if registration.registration_state != RegistrationState::Active
@@ -394,11 +394,11 @@ impl TargetProcessRegistry {
         Ok(())
     }
 
-    /// 判断目标是否声明支持指定命令.
+    /// Determines whether the target declares support for a command.
     ///
-    /// 参数 `target_id` 是目标进程标识.
-    /// 参数 `command` 是控制命令名称.
-    /// 返回值在命令受支持时为成功.
+    /// The `target_id` parameter is the target process identifier.
+    /// The `command` parameter is the control command name.
+    /// The return value is successful when the command is supported.
     pub fn ensure_command_supported(
         &self,
         target_id: &str,
@@ -423,11 +423,11 @@ impl TargetProcessRegistry {
         ))
     }
 
-    /// 标记目标开始绑定 IPC(进程间通信).
+    /// Marks that a target starts binding IPC.
     ///
-    /// 参数 `target_id` 是目标进程标识.
-    /// 参数 `now` 是状态变化时间.
-    /// 返回值在状态变化成功时为空.
+    /// The `target_id` parameter is the target process identifier.
+    /// The `now` parameter is the state change time.
+    /// The return value is empty when the state change succeeds.
     pub fn begin_binding(&mut self, target_id: &str, now: OffsetDateTime) -> RelayResult<()> {
         let connection = self.connection_mut(target_id)?;
         connection.state = ConnectionState::Connecting;
@@ -435,12 +435,12 @@ impl TargetProcessRegistry {
         Ok(())
     }
 
-    /// 标记目标 IPC(进程间通信) 已连接.
+    /// Marks target IPC as connected.
     ///
-    /// 参数 `target_id` 是目标进程标识.
-    /// 参数 `state_generation` 是连接后读取到的 state(状态) 代次.
-    /// 参数 `now` 是状态变化时间.
-    /// 返回值在状态变化成功时为空.
+    /// The `target_id` parameter is the target process identifier.
+    /// The `state_generation` parameter is the state generation read after connection.
+    /// The `now` parameter is the state change time.
+    /// The return value is empty when the state change succeeds.
     pub fn mark_connected(
         &mut self,
         target_id: &str,
@@ -456,12 +456,12 @@ impl TargetProcessRegistry {
         Ok(())
     }
 
-    /// 标记目标 IPC(进程间通信) 正在重连.
+    /// Marks target IPC as reconnecting.
     ///
-    /// 参数 `target_id` 是目标进程标识.
-    /// 参数 `reason` 是重连原因.
-    /// 参数 `now` 是状态变化时间.
-    /// 返回值在状态变化成功时为空.
+    /// The `target_id` parameter is the target process identifier.
+    /// The `reason` parameter is the reconnection reason.
+    /// The `now` parameter is the state change time.
+    /// The return value is empty when the state change succeeds.
     pub fn mark_reconnecting(
         &mut self,
         target_id: &str,
@@ -475,11 +475,11 @@ impl TargetProcessRegistry {
         }
     }
 
-    /// 标记目标 IPC(进程间通信) 不可用.
+    /// Marks target IPC as unavailable.
     ///
-    /// 参数 `target_id` 是目标进程标识.
-    /// 参数 `reason` 是不可用原因.
-    /// 参数 `now` 是状态变化时间.
+    /// The `target_id` parameter is the target process identifier.
+    /// The `reason` parameter is the unavailable reason.
+    /// The `now` parameter is the state change time.
     pub fn mark_unavailable(
         &mut self,
         target_id: &str,
@@ -493,20 +493,20 @@ impl TargetProcessRegistry {
         }
     }
 
-    /// 读取目标连接状态.
+    /// Reads the target connection state.
     ///
-    /// 参数 `target_id` 是目标进程标识.
-    /// 返回值是连接状态, 或者在目标不存在时返回空.
+    /// The `target_id` parameter is the target process identifier.
+    /// The return value is the connection state, or empty when the target does not exist.
     pub fn connection_state(&self, target_id: &str) -> Option<ConnectionState> {
         self.connections
             .get(target_id)
             .map(|connection| connection.state)
     }
 
-    /// 汇总所有目标的 partial availability(部分可用) 状态.
+    /// Summarizes partial availability state for all targets.
     ///
-    /// 参数为空, 因为汇总读取注册表中的连接状态.
-    /// 返回值是连接状态数量汇总.
+    /// This method has no parameters because it reads connection state from the registry.
+    /// The return value is the connection state count summary.
     pub fn availability_summary(&self) -> AvailabilitySummary {
         let mut summary = AvailabilitySummary {
             total: self.connections.len(),
@@ -528,11 +528,11 @@ impl TargetProcessRegistry {
         summary
     }
 
-    /// 更新目标最近收到的 sequence(序号).
+    /// Updates the latest received sequence for a target.
     ///
-    /// 参数 `target_id` 是目标进程标识.
-    /// 参数 `sequence` 是事件序号.
-    /// 返回值是上一条序号, 或者在没有记录时返回空.
+    /// The `target_id` parameter is the target process identifier.
+    /// The `sequence` parameter is the event sequence.
+    /// The return value is the previous sequence, or empty when no record exists.
     pub fn update_sequence(&mut self, target_id: &str, sequence: u64) -> Option<u64> {
         self.connections.get_mut(target_id).and_then(|connection| {
             let previous = connection.last_sequence;
@@ -541,10 +541,10 @@ impl TargetProcessRegistry {
         })
     }
 
-    /// 校验注册请求.
+    /// Validates a registration request.
     ///
-    /// 参数 `request` 是目标进程提交的注册载荷.
-    /// 返回值在注册载荷满足安全策略时为空.
+    /// The `request` parameter is the registration payload submitted by the target process.
+    /// The return value is empty when the registration payload satisfies the security policy.
     fn validate_request(&self, request: &RegistrationRequest) -> RelayResult<()> {
         if request.target_id.trim().is_empty() {
             return Err(RelayError::new(
@@ -601,10 +601,10 @@ impl TargetProcessRegistry {
         Ok(())
     }
 
-    /// 读取可变连接记录.
+    /// Reads a mutable connection record.
     ///
-    /// 参数 `target_id` 是目标进程标识.
-    /// 返回值是可变连接记录, 或者未注册错误.
+    /// The `target_id` parameter is the target process identifier.
+    /// The return value is the mutable connection record, or a not-registered error.
     fn connection_mut(&mut self, target_id: &str) -> RelayResult<&mut TargetProcessConnection> {
         self.connections.get_mut(target_id).ok_or_else(|| {
             RelayError::for_target(

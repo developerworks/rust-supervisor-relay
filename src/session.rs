@@ -1,6 +1,6 @@
-//! session(会话) 模块实现 `wss://` control session(控制会话), 首包顺序和 IPC(进程间通信) 绑定门控.
+//! The session module implements `wss://` control sessions, first-message ordering, and IPC binding gates.
 //!
-//! session(会话) 必须先完成身份认证并发送 target process list(目标进程列表), 然后才能绑定目标 IPC(进程间通信).
+//! A session must complete identity authentication and send the target process list before binding target IPC.
 
 use std::collections::{HashMap, HashSet};
 
@@ -15,233 +15,233 @@ use crate::error::{RelayError, RelayResult};
 use crate::ipc_client::{DashboardState, TargetIpcPort};
 use crate::registry::{ConnectionState, TargetProcessRegistry, VisibleTarget};
 
-/// `TransportSecurity`(传输安全) 表示远程连接的外部协议安全级别.
+/// `TransportSecurity` represents the external protocol security level of a remote connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransportSecurity {
-    /// `Wss`(安全网络套接字协议) 表示 TLS(传输层安全协议) 已在 WebSocket(网络套接字协议) 前完成.
+    /// `Wss` indicates that TLS completed before WebSocket.
     Wss,
-    /// `Ws`(明文网络套接字协议) 表示不允许完整控制的明文连接.
+    /// `Ws` indicates a plaintext connection where full control is not allowed.
     Ws,
 }
 
-/// `ConnectionStateForSession`(会话连接状态) 表达远程连接生命周期.
+/// `ConnectionStateForSession` expresses the remote connection lifecycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConnectionStateForSession {
-    /// `Handshaking`(握手中) 表示身份尚未建立.
+    /// `Handshaking` indicates that identity has not been established yet.
     Handshaking,
-    /// `Established`(已建立) 表示 control session(控制会话) 已建立.
+    /// `Established` indicates that the control session has been established.
     Established,
-    /// `Closing`(关闭中) 表示连接正在关闭.
+    /// `Closing` indicates that the connection is closing.
     Closing,
-    /// `Closed`(已关闭) 表示连接已关闭.
+    /// `Closed` indicates that the connection is closed.
     Closed,
 }
 
-/// `ControlState`(控制状态) 表示 session(会话) 是否允许控制目标.
+/// `ControlState` indicates whether a session is allowed to control targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ControlState {
-    /// `NotEstablished`(未建立) 表示不得触发 IPC(进程间通信).
+    /// `NotEstablished` indicates that IPC must not be triggered.
     NotEstablished,
-    /// `Established`(已建立) 表示认证和控制会话已经完成.
+    /// `Established` indicates that authentication and control session setup are complete.
     Established,
-    /// `Revoked`(已撤销) 表示授权被撤销.
+    /// `Revoked` indicates that authorization has been revoked.
     Revoked,
 }
 
-/// `EventRecord`(事件记录) 是 relay(中继) 对外分发的最小事件模型.
+/// `EventRecord` is the minimal event model that the relay fans out externally.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventRecord {
-    /// `target_id`(目标标识) 是事件所属目标进程.
+    /// `target_id` is the target process that owns the event.
     pub target_id: String,
-    /// `sequence`(序号) 是目标进程内单调事件序号.
+    /// `sequence` is the monotonically increasing event sequence inside the target process.
     pub sequence: u64,
-    /// `event_type`(事件类型) 是监督事件名称.
+    /// `event_type` is the supervision event name.
     pub event_type: String,
-    /// `severity`(严重程度) 是事件严重级别.
+    /// `severity` is the event severity level.
     pub severity: String,
-    /// `occurred_at`(发生时间) 是事件时间.
+    /// `occurred_at` is the event time.
     pub occurred_at: OffsetDateTime,
 }
 
-/// `LogRecord`(日志记录) 是 relay(中继) 对外分发的最小日志模型.
+/// `LogRecord` is the minimal log model that the relay fans out externally.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LogRecord {
-    /// `target_id`(目标标识) 是日志所属目标进程.
+    /// `target_id` is the target process that owns the log.
     pub target_id: String,
-    /// `sequence`(序号) 是可以关联事件的可选日志序号.
+    /// `sequence` is the optional log sequence that can correlate with events.
     pub sequence: Option<u64>,
-    /// `severity`(严重程度) 是日志严重级别.
+    /// `severity` is the log severity level.
     pub severity: String,
-    /// `message`(消息) 是日志文本.
+    /// `message` is the log text.
     pub message: String,
-    /// `occurred_at`(发生时间) 是日志时间.
+    /// `occurred_at` is the log time.
     pub occurred_at: OffsetDateTime,
 }
 
-/// `LogEventFilterMode`(日志事件筛选模式) 表示 relay(中继) 或客户端本地负责筛选.
+/// `LogEventFilterMode` indicates whether the relay or the local client handles filtering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LogEventFilterMode {
-    /// `Remote`(远程过滤) 表示 relay(中继) 按条件减少下发.
+    /// `Remote` indicates that the relay reduces delivery according to conditions.
     Remote,
-    /// `Local`(本地过滤) 表示 relay(中继) 下发完整后续数据.
+    /// `Local` indicates that the relay sends complete subsequent data.
     Local,
 }
 
-/// `ResumeCursorEntry`(恢复游标条目) 表示单个 target(目标) 和 stream(流) 的恢复点.
+/// `ResumeCursorEntry` represents the resume point for a single target and stream.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResumeCursorEntry {
-    /// `delivery_mode`(交付模式) 是 remote(远程过滤) 或 local(本地过滤).
+    /// `delivery_mode` is remote or local filtering.
     pub delivery_mode: String,
-    /// `filter_config_version`(筛选配置版本) 是 relay(中继) 下发的配置版本.
+    /// `filter_config_version` is the configuration version sent by the relay.
     pub filter_config_version: u64,
-    /// `stream_epoch`(流世代) 隔离 target(目标) 重启后的序列.
+    /// `stream_epoch` isolates sequences after a target restart.
     pub stream_epoch: String,
-    /// `sequence`(序列) 是 next_sequence_inclusive(下一条包含边界的序列).
+    /// `sequence` is the next inclusive sequence boundary.
     pub sequence: u64,
 }
 
-/// `ResumeCursor`(恢复游标) 保存 event/log(事件和日志) 两个流的恢复请求.
+/// `ResumeCursor` stores resume requests for the event and log streams.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResumeCursor {
-    /// `events`(事件) 保存事件流恢复点.
+    /// `events` stores event stream resume points.
     #[serde(default)]
     pub events: HashMap<String, ResumeCursorEntry>,
-    /// `logs`(日志) 保存日志流恢复点.
+    /// `logs` stores log stream resume points.
     #[serde(default)]
     pub logs: HashMap<String, ResumeCursorEntry>,
 }
 
-/// `ClientHello`(客户端握手) 是客户端建立 session(会话) 后发送的第一条消息.
+/// `ClientHello` is the first message sent by the client after establishing the session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientHello {
-    /// `client_store_id`(客户端存储标识) 是本地数据库分区键.
+    /// `client_store_id` is the local database partition key.
     pub client_store_id: String,
-    /// `resume_cursor`(恢复游标) 是本地持久化库提供的恢复请求.
+    /// `resume_cursor` is the resume request supplied by the local persistent store.
     #[serde(default)]
     pub resume_cursor: ResumeCursor,
 }
 
-/// `LogEventFilterConditionsMessage`(日志事件筛选条件消息) 表达客户端当前筛选条件.
+/// `LogEventFilterConditionsMessage` expresses the client's current filter conditions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LogEventFilterConditionsMessage {
-    /// `target_ids`(目标标识集合) 限定目标.
+    /// `target_ids` restricts targets.
     #[serde(default)]
     pub target_ids: Vec<String>,
-    /// `child_paths`(子任务路径集合) 限定子任务.
+    /// `child_paths` restricts child tasks.
     #[serde(default)]
     pub child_paths: Vec<String>,
-    /// `lifecycle_states`(生命周期状态集合) 限定状态.
+    /// `lifecycle_states` restricts lifecycle states.
     #[serde(default)]
     pub lifecycle_states: Vec<String>,
-    /// `event_types`(事件类型集合) 限定事件类型.
+    /// `event_types` restricts event types.
     #[serde(default)]
     pub event_types: Vec<String>,
-    /// `severities`(严重程度集合) 限定严重程度.
+    /// `severities` restricts severity levels.
     #[serde(default)]
     pub severities: Vec<String>,
-    /// `sequence_min`(最小序列) 表示客户端筛选的最小序列.
+    /// `sequence_min` indicates the minimum sequence filtered by the client.
     pub sequence_min: Option<u64>,
-    /// `correlation_id`(关联标识) 表示关联筛选文本.
+    /// `correlation_id` indicates the correlation filter text.
     pub correlation_id: Option<String>,
 }
 
-/// `ClientMessage`(客户端消息) 是当前协议接受的入站消息.
+/// `ClientMessage` is the inbound message accepted by the current protocol.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
-    /// `ClientHello`(客户端握手) 必须是客户端第一条消息.
+    /// `ClientHello` must be the first client message.
     ClientHello(ClientHello),
-    /// `Command`(命令) 是握手后的控制命令.
+    /// `Command` is a control command after handshake.
     Command(ClientCommand),
-    /// `LogEventFilterConditions`(日志事件筛选条件) 是当前协议的筛选更新消息.
+    /// `LogEventFilterConditions` is the filter update message in the current protocol.
     LogEventFilterConditions(LogEventFilterConditionsMessage),
 }
 
-/// `ServerMessage`(服务端消息) 是 relay(中继) 通过 `wss://` 发送给 dashboard(看板) 的消息.
+/// `ServerMessage` is the message sent by the relay to the dashboard through `wss://`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
-    /// `ServerHello`(服务端握手) 是 relay(中继) 在业务数据前发送的身份引导.
+    /// `ServerHello` is the identity bootstrap sent by the relay before business data.
     ServerHello {
-        /// `session_id`(会话标识) 是 relay(中继) 生成的 UUID(通用唯一标识).
+        /// `session_id` is the UUID generated by the relay.
         session_id: Uuid,
-        /// `client_identity`(客户端身份) 是 mTLS(双向传输层安全) 证书身份键.
+        /// `client_identity` is the mTLS certificate identity key.
         client_identity: String,
-        /// `log_event_filter_mode`(日志事件筛选模式) 是当前身份的筛选模式.
+        /// `log_event_filter_mode` is the filter mode for the current identity.
         log_event_filter_mode: LogEventFilterMode,
-        /// `log_event_filter_conditions`(日志事件筛选条件) 是当前身份的筛选条件.
+        /// `log_event_filter_conditions` contains the filter conditions for the current identity.
         log_event_filter_conditions: serde_json::Value,
-        /// `filter_config_version`(筛选配置版本) 是当前身份配置版本.
+        /// `filter_config_version` is the configuration version for the current identity.
         filter_config_version: u64,
     },
-    /// `TargetList`(目标列表) 是 client_hello(客户端握手) 成功后的业务数据.
+    /// `TargetList` is the business data sent after `client_hello` succeeds.
     TargetList {
-        /// `targets`(目标列表) 是当前活动 target(目标).
+        /// `targets` contains the current active targets.
         targets: Vec<VisibleTarget>,
     },
-    /// `State`(状态) 在目标绑定或重连后发送.
+    /// `State` is sent after target binding or reconnection.
     State {
-        /// `target_id`(目标标识) 是目标进程身份.
+        /// `target_id` is the target process identity.
         target_id: String,
-        /// `state`(状态) 是目标进程当前视图.
+        /// `state` is the current target process view.
         state: DashboardState,
     },
-    /// `Event`(事件) 是目标进程主动事件.
+    /// `Event` is an active event from the target process.
     Event {
-        /// `target_id`(目标标识) 是目标进程身份.
+        /// `target_id` is the target process identity.
         target_id: String,
-        /// `event`(事件) 是监督事件记录.
+        /// `event` is the supervision event record.
         event: EventRecord,
     },
-    /// `Log`(日志) 是目标进程主动日志.
+    /// `Log` is an active log from the target process.
     Log {
-        /// `target_id`(目标标识) 是目标进程身份.
+        /// `target_id` is the target process identity.
         target_id: String,
-        /// `log`(日志) 是目标日志记录.
+        /// `log` is the target log record.
         log: LogRecord,
     },
-    /// `StateDelta`(状态增量) 是目标状态变化.
+    /// `StateDelta` is a target state change.
     StateDelta {
-        /// `target_id`(目标标识) 是目标进程身份.
+        /// `target_id` is the target process identity.
         target_id: String,
-        /// `delta`(增量) 是状态变化载荷.
+        /// `delta` is the state-change payload.
         delta: serde_json::Value,
     },
-    /// `DroppedCount`(丢弃数量) 是事件缺口或缓冲区丢弃诊断.
+    /// `DroppedCount` is an event gap or buffer drop diagnostic.
     DroppedCount {
-        /// `target_id`(目标标识) 是目标进程身份.
+        /// `target_id` is the target process identity.
         target_id: String,
-        /// `dropped_event_count`(丢弃事件数量) 是丢弃或缺口数量.
+        /// `dropped_event_count` is the drop or gap count.
         dropped_event_count: u64,
     },
-    /// `CommandResult`(命令结果) 是目标进程控制命令结果.
+    /// `CommandResult` is the target process control command result.
     CommandResult {
-        /// `target_id`(目标标识) 是目标进程身份.
+        /// `target_id` is the target process identity.
         target_id: String,
-        /// `result`(结果) 是控制命令结果.
+        /// `result` is the control command result.
         result: ControlCommandResult,
     },
-    /// `ConnectionState`(连接状态) 是目标 IPC(进程间通信) 可用性变化.
+    /// `ConnectionState` is a target IPC availability change.
     ConnectionState {
-        /// `target_id`(目标标识) 是目标进程身份.
+        /// `target_id` is the target process identity.
         target_id: String,
-        /// `state`(状态) 是目标连接状态.
+        /// `state` is the target connection state.
         state: ConnectionState,
     },
-    /// `Error`(错误) 是结构化错误消息.
+    /// `Error` is a structured error message.
     Error {
-        /// `error`(错误) 是结构化 relay(中继) 错误.
+        /// `error` is the structured relay error.
         error: RelayError,
     },
 }
 
-/// 解码客户端消息并拒绝历史协议字段.
+/// Decodes a client message and rejects historical protocol fields.
 ///
-/// 参数 `raw` 是 WebSocket(网络套接字) 文本消息.
-/// 返回值是当前协议客户端消息, 或者结构化拒绝错误.
+/// The `raw` parameter is the WebSocket text message.
+/// The return value is the current protocol client message, or a structured rejection error.
 pub fn decode_client_message(raw: &str) -> RelayResult<ClientMessage> {
     let value: serde_json::Value = serde_json::from_str(raw).map_err(|error| {
         RelayError::new(
@@ -298,36 +298,36 @@ pub fn decode_client_message(raw: &str) -> RelayResult<ClientMessage> {
     })
 }
 
-/// `DashboardSession`(看板会话) 保存一个已认证远程连接的状态.
+/// `DashboardSession` stores the state of an authenticated remote connection.
 #[derive(Debug)]
 pub struct DashboardSession {
-    /// `session_id`(会话标识) 是 relay(中继) 生成的 UUID(通用唯一标识).
+    /// `session_id` is the UUID generated by the relay.
     session_id: Uuid,
-    /// `remote_identity`(远程身份) 在认证成功后保存身份.
+    /// `remote_identity` stores identity after successful authentication.
     remote_identity: Option<RemoteIdentity>,
-    /// `client_store_id`(客户端存储标识) 在 client_hello(客户端握手) 后保存.
+    /// `client_store_id` is stored after `client_hello`.
     client_store_id: Option<String>,
-    /// `connection_state`(连接状态) 保存远程连接生命周期.
+    /// `connection_state` stores the remote connection lifecycle.
     connection_state: ConnectionStateForSession,
-    /// `control_state`(控制状态) 保存是否允许触发 IPC(进程间通信).
+    /// `control_state` stores whether IPC triggering is allowed.
     control_state: ControlState,
-    /// `bound_targets`(已绑定目标) 保存已经触发 IPC(进程间通信) 绑定的目标.
+    /// `bound_targets` stores targets whose IPC binding has been triggered.
     bound_targets: HashSet<String>,
-    /// `last_sequences`(最近序号) 保存每个目标最近转发事件序号.
+    /// `last_sequences` stores the latest forwarded event sequence for each target.
     last_sequences: HashMap<String, u64>,
-    /// `outbox`(输出队列) 保存按顺序生成的服务端消息.
+    /// `outbox` stores generated server messages in order.
     outbox: Vec<ServerMessage>,
-    /// `created_at`(创建时间) 是 session(会话) 创建时间.
+    /// `created_at` is the session creation time.
     created_at: OffsetDateTime,
-    /// `last_seen_at`(最近时间) 是 session(会话) 最近活动时间.
+    /// `last_seen_at` is the latest session activity time.
     last_seen_at: OffsetDateTime,
 }
 
 impl DashboardSession {
-    /// 创建一个未认证 session(会话).
+    /// Creates an unauthenticated session.
     ///
-    /// 参数 `now` 是创建时间.
-    /// 返回值是不允许触发 IPC(进程间通信) 的 session(会话).
+    /// The `now` parameter is the creation time.
+    /// The return value is a session that cannot trigger IPC.
     pub fn unauthenticated(now: OffsetDateTime) -> Self {
         Self {
             session_id: Uuid::new_v4(),
@@ -343,11 +343,11 @@ impl DashboardSession {
         }
     }
 
-    /// 创建只发送 server_hello(服务端握手) 的已认证 session(会话).
+    /// Creates an authenticated session that only sends `server_hello`.
     ///
-    /// 参数 `identity` 是已认证远程身份.
-    /// 参数 `now` 是会话创建时间.
-    /// 返回值是等待 client_hello(客户端握手) 的 session(会话).
+    /// The `identity` parameter is the authenticated remote identity.
+    /// The `now` parameter is the session creation time.
+    /// The return value is the session waiting for `client_hello`.
     pub fn server_hello(identity: RemoteIdentity, now: OffsetDateTime) -> Self {
         let session_id = Uuid::new_v4();
         let outbox = vec![ServerMessage::ServerHello {
@@ -372,11 +372,11 @@ impl DashboardSession {
         }
     }
 
-    /// 接受 client_hello(客户端握手) 并开放业务数据.
+    /// Accepts `client_hello` and opens business data.
     ///
-    /// 参数 `hello` 是客户端第一条消息.
-    /// 参数 `now` 是握手时间.
-    /// 返回值在握手成功时为空.
+    /// The `hello` parameter is the first client message.
+    /// The `now` parameter is the handshake time.
+    /// The return value is empty when handshake succeeds.
     pub fn accept_client_hello(
         &mut self,
         hello: ClientHello,
@@ -409,20 +409,20 @@ impl DashboardSession {
         Ok(())
     }
 
-    /// 在 client_hello(客户端握手) 后发布 target list(目标列表).
+    /// Publishes the target list after `client_hello`.
     ///
-    /// 参数 `targets` 是当前活动目标集合.
+    /// The `targets` parameter is the current active target set.
     pub fn publish_target_list(&mut self, targets: Vec<VisibleTarget>) {
         self.outbox.push(ServerMessage::TargetList { targets });
     }
 
-    /// 建立一个已认证 control session(控制会话).
+    /// Establishes an authenticated control session.
     ///
-    /// 参数 `identity` 是已认证远程身份.
-    /// 参数 `registry` 是目标进程注册表.
-    /// 参数 `transport` 是远程连接安全级别.
-    /// 参数 `now` 是会话建立时间.
-    /// 返回值是已建立 session(会话), 首包为 `session_established`.
+    /// The `identity` parameter is the authenticated remote identity.
+    /// The `registry` parameter is the target process registry.
+    /// The `transport` parameter is the remote connection security level.
+    /// The `now` parameter is the session establishment time.
+    /// The return value is the established session whose first payload is `session_established`.
     pub fn establish(
         identity: RemoteIdentity,
         registry: &TargetProcessRegistry,
@@ -453,13 +453,13 @@ impl DashboardSession {
         Ok(session)
     }
 
-    /// 绑定一个目标进程并触发 IPC(进程间通信) state(状态) 和 subscription(订阅).
+    /// Binds one target process and triggers IPC state and subscription.
     ///
-    /// 参数 `target_id` 是目标进程标识.
-    /// 参数 `registry` 是可变目标注册表.
-    /// 参数 `ipc` 是可模拟 IPC(进程间通信) 端口.
-    /// 参数 `now` 是绑定时间.
-    /// 返回值在绑定成功时为空.
+    /// The `target_id` parameter is the target process identifier.
+    /// The `registry` parameter is the mutable target registry.
+    /// The `ipc` parameter is the mockable IPC port.
+    /// The `now` parameter is the binding time.
+    /// The return value is empty when binding succeeds.
     pub fn bind_target(
         &mut self,
         target_id: &str,
@@ -494,14 +494,14 @@ impl DashboardSession {
         Ok(())
     }
 
-    /// 处理一个客户端控制命令.
+    /// Handles one client control command.
     ///
-    /// 参数 `command` 是客户端命令.
-    /// 参数 `registry` 是可变目标注册表.
-    /// 参数 `ipc` 是可模拟 IPC(进程间通信) 端口.
-    /// 参数 `audit` 是审计记录器.
-    /// 参数 `now` 是命令处理时间.
-    /// 返回值是目标进程命令结果.
+    /// The `command` parameter is the client command.
+    /// The `registry` parameter is the mutable target registry.
+    /// The `ipc` parameter is the mockable IPC port.
+    /// The `audit` parameter is the audit recorder.
+    /// The `now` parameter is the command processing time.
+    /// The return value is the target process command result.
     pub fn handle_command(
         &mut self,
         command: ClientCommand,
@@ -549,50 +549,50 @@ impl DashboardSession {
         Ok(result)
     }
 
-    /// 读取 session(会话) 输出消息.
+    /// Reads session output messages.
     ///
-    /// 参数为空, 因为该方法读取当前 session(会话) 输出队列.
-    /// 返回值是服务端消息切片.
+    /// This method has no parameters because it reads the current session output queue.
+    /// The return value is the server message slice.
     pub fn outbox(&self) -> &[ServerMessage] {
         &self.outbox
     }
 
-    /// 取出并清空 session(会话) 输出队列.
+    /// Takes and clears the session output queue.
     ///
-    /// 参数为空, 因为该方法移动当前输出队列.
-    /// 返回值是待发送服务端消息.
+    /// This method has no parameters because it moves the current output queue.
+    /// The return value is the server messages pending delivery.
     pub fn drain_outbox(&mut self) -> Vec<ServerMessage> {
         std::mem::take(&mut self.outbox)
     }
 
-    /// 读取 session id(会话标识).
+    /// Reads the session id.
     ///
-    /// 参数为空, 因为该方法读取当前 session(会话) 状态.
-    /// 返回值是 relay(中继) 生成的 UUID(通用唯一标识).
+    /// This method has no parameters because it reads the current session state.
+    /// The return value is the UUID generated by the relay.
     pub fn session_id(&self) -> Uuid {
         self.session_id
     }
 
-    /// 读取 session(会话) 创建时间.
+    /// Reads the session creation time.
     ///
-    /// 参数为空, 因为该方法读取当前 session(会话) 状态.
-    /// 返回值是创建时间.
+    /// This method has no parameters because it reads the current session state.
+    /// The return value is the creation time.
     pub fn created_at(&self) -> OffsetDateTime {
         self.created_at
     }
 
-    /// 判断目标是否已经绑定.
+    /// Determines whether the target is already bound.
     ///
-    /// 参数 `target_id` 是目标进程标识.
-    /// 返回值表示 session(会话) 是否已经触发该目标 IPC(进程间通信) 绑定.
+    /// The `target_id` parameter is the target process identifier.
+    /// The return value indicates whether the session has triggered IPC binding for this target.
     pub fn is_bound(&self, target_id: &str) -> bool {
         self.bound_targets.contains(target_id)
     }
 
-    /// 读取 session(会话) 首包可见目标数量.
+    /// Reads the visible target count from the first session payload.
     ///
-    /// 参数为空, 因为该方法读取当前输出队列中的首包.
-    /// 返回值是可见目标数量.
+    /// This method has no parameters because it reads the first payload in the current output queue.
+    /// The return value is the visible target count.
     pub fn visible_target_count(&self) -> usize {
         self.outbox
             .iter()
@@ -603,10 +603,10 @@ impl DashboardSession {
             .unwrap_or(0)
     }
 
-    /// 处理目标事件并保持 sequence(序号) 顺序诊断.
+    /// Handles a target event and preserves sequence-order diagnostics.
     ///
-    /// 参数 `event` 是目标进程事件.
-    /// 返回值是应该发送给 dashboard(看板) 的消息集合.
+    /// The `event` parameter is the target process event.
+    /// The return value is the message set that should be sent to the dashboard.
     pub fn accept_event(&mut self, event: EventRecord) -> RelayResult<Vec<ServerMessage>> {
         if !self.bound_targets.contains(&event.target_id) {
             return Ok(Vec::new());
@@ -643,10 +643,10 @@ impl DashboardSession {
         Ok(messages)
     }
 
-    /// 处理目标日志.
+    /// Handles a target log.
     ///
-    /// 参数 `log` 是目标进程日志.
-    /// 返回值是应该发送给 dashboard(看板) 的消息集合.
+    /// The `log` parameter is the target process log.
+    /// The return value is the message set that should be sent to the dashboard.
     pub fn accept_log(&mut self, log: LogRecord) -> RelayResult<Vec<ServerMessage>> {
         if !self.bound_targets.contains(&log.target_id) {
             return Ok(Vec::new());
@@ -659,11 +659,11 @@ impl DashboardSession {
         Ok(vec![message])
     }
 
-    /// 处理目标状态增量.
+    /// Handles a target state delta.
     ///
-    /// 参数 `target_id` 是目标进程标识.
-    /// 参数 `delta` 是状态变化载荷.
-    /// 返回值是应该发送给 dashboard(看板) 的消息集合.
+    /// The `target_id` parameter is the target process identifier.
+    /// The `delta` parameter is the state-change payload.
+    /// The return value is the message set that should be sent to the dashboard.
     pub fn accept_state_delta(
         &mut self,
         target_id: &str,
@@ -680,11 +680,11 @@ impl DashboardSession {
         Ok(vec![message])
     }
 
-    /// 处理 dropped count(丢弃数量) 诊断.
+    /// Handles a dropped-count diagnostic.
     ///
-    /// 参数 `target_id` 是目标进程标识.
-    /// 参数 `dropped_event_count` 是丢弃事件数量.
-    /// 返回值是应该发送给 dashboard(看板) 的消息集合.
+    /// The `target_id` parameter is the target process identifier.
+    /// The `dropped_event_count` parameter is the dropped event count.
+    /// The return value is the message set that should be sent to the dashboard.
     pub fn accept_dropped_count(
         &mut self,
         target_id: &str,
@@ -701,11 +701,11 @@ impl DashboardSession {
         Ok(vec![message])
     }
 
-    /// 处理连接状态变化.
+    /// Handles a connection state change.
     ///
-    /// 参数 `target_id` 是目标进程标识.
-    /// 参数 `state` 是新的连接状态.
-    /// 返回值是应该发送给 dashboard(看板) 的消息集合.
+    /// The `target_id` parameter is the target process identifier.
+    /// The `state` parameter is the new connection state.
+    /// The return value is the message set that should be sent to the dashboard.
     pub fn accept_connection_state(
         &mut self,
         target_id: &str,
@@ -722,10 +722,10 @@ impl DashboardSession {
         Ok(vec![message])
     }
 
-    /// 确认 control session(控制会话) 已经建立.
+    /// Confirms that the control session has been established.
     ///
-    /// 参数为空, 因为检查读取当前 session(会话) 状态.
-    /// 返回值在会话可触发 IPC(进程间通信) 时为空.
+    /// This method has no parameters because the check reads the current session state.
+    /// The return value is empty when the session can trigger IPC.
     fn ensure_control_established(&self) -> RelayResult<()> {
         if self.connection_state == ConnectionStateForSession::Established
             && self.control_state == ControlState::Established

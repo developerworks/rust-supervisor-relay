@@ -1,6 +1,6 @@
-//! auth(认证) 模块把 mTLS(双向传输层安全协议认证) 和 trusted proxy(可信代理) 输入转换为 RemoteIdentity(远程身份).
+//! The auth module converts mTLS and trusted-proxy inputs into `RemoteIdentity`.
 //!
-//! relay(中继) 只信任已经验证的客户端证书, 或者来自配置内可信代理地址的身份 header(标头).
+//! The relay only trusts verified client certificates or identity headers from configured trusted proxy addresses.
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -12,17 +12,17 @@ use time::OffsetDateTime;
 use crate::config::TrustedProxyConfig;
 use crate::error::{RelayError, RelayResult};
 
-/// `IdentitySource`(身份来源) 表示远程身份来自 mTLS(双向传输层安全协议认证) 还是 trusted proxy(可信代理).
+/// `IdentitySource` indicates whether the remote identity comes from mTLS or a trusted proxy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IdentitySource {
-    /// `Mtls`(双向传输层安全协议认证) 表示身份来自客户端证书.
+    /// `Mtls` indicates that the identity comes from a client certificate.
     Mtls,
-    /// `TrustedProxy`(可信代理) 表示身份来自可信代理传入的已验证 header(标头).
+    /// `TrustedProxy` indicates that the identity comes from a verified header passed by a trusted proxy.
     TrustedProxy,
 }
 
-/// `RemoteIdentity`(远程身份) 保存已认证操作者或服务身份.
+/// `RemoteIdentity` stores an authenticated operator or service identity.
 ///
 /// # Examples
 ///
@@ -44,34 +44,34 @@ pub enum IdentitySource {
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteIdentity {
-    /// `client_identity`(客户端身份) 是 relay(中继) 派生的稳定客户端键.
+    /// `client_identity` is the stable client key derived by the relay.
     pub client_identity: String,
-    /// `subject`(主体) 是证书主体或代理传入的已验证主体.
+    /// `subject` is the certificate subject or the verified subject passed by the proxy.
     pub subject: String,
-    /// `issuer`(签发者) 是证书签发者, 代理模式使用 trusted-proxy(可信代理) 标记.
+    /// `issuer` is the certificate issuer. Proxy mode uses the `trusted-proxy` marker.
     pub issuer: String,
-    /// `serial_number`(序列号) 是证书序列号, 代理模式使用 header(标头) 摘要.
+    /// `serial_number` is the certificate serial number. Proxy mode uses a header summary.
     pub serial_number: String,
-    /// `principal`(主体身份) 是 relay(中继) 派生的操作者或服务身份.
+    /// `principal` is the operator or service identity derived by the relay.
     pub principal: String,
-    /// `source`(来源) 表示身份来源.
+    /// `source` indicates the identity source.
     pub source: IdentitySource,
-    /// `not_before`(生效时间) 是身份有效期开始时间.
+    /// `not_before` is the start of the identity validity window.
     pub not_before: OffsetDateTime,
-    /// `not_after`(失效时间) 是身份有效期结束时间.
+    /// `not_after` is the end of the identity validity window.
     pub not_after: OffsetDateTime,
 }
 
 impl RemoteIdentity {
-    /// 从已经验证的 mTLS(双向传输层安全协议认证) 证书字段创建身份.
+    /// Creates an identity from verified mTLS certificate fields.
     ///
-    /// 参数 `subject` 是证书主体.
-    /// 参数 `issuer` 是证书签发者.
-    /// 参数 `serial_number` 是证书序列号.
-    /// 参数 `not_before` 是证书生效时间.
-    /// 参数 `not_after` 是证书失效时间.
-    /// 参数 `now` 是校验时间.
-    /// 返回值是可用于会话和审计的 `RemoteIdentity`(远程身份).
+    /// The `subject` parameter is the certificate subject.
+    /// The `issuer` parameter is the certificate issuer.
+    /// The `serial_number` parameter is the certificate serial number.
+    /// The `not_before` parameter is the certificate validity start time.
+    /// The `not_after` parameter is the certificate validity end time.
+    /// The `now` parameter is the validation time.
+    /// The return value is the `RemoteIdentity` usable for sessions and audits.
     pub fn from_verified_mtls_subject(
         subject: impl Into<String>,
         issuer: impl Into<String>,
@@ -119,11 +119,11 @@ impl RemoteIdentity {
         })
     }
 
-    /// 从 trusted proxy(可信代理) 已验证 header(标头) 创建身份.
+    /// Creates an identity from a verified trusted-proxy header.
     ///
-    /// 参数 `subject` 是代理声明已验证的主体.
-    /// 参数 `now` 是创建时间.
-    /// 返回值是可用于会话和审计的 `RemoteIdentity`(远程身份).
+    /// The `subject` parameter is the verified subject asserted by the proxy.
+    /// The `now` parameter is the creation time.
+    /// The return value is the `RemoteIdentity` usable for sessions and audits.
     pub fn from_trusted_proxy_subject(
         subject: impl Into<String>,
         now: OffsetDateTime,
@@ -152,15 +152,15 @@ impl RemoteIdentity {
     }
 }
 
-/// `AuthContext`(认证上下文) 提供 mTLS(双向传输层安全协议认证) 和 trusted proxy(可信代理) 身份派生函数.
+/// `AuthContext` provides mTLS and trusted-proxy identity derivation functions.
 pub struct AuthContext;
 
 impl AuthContext {
-    /// 从 DER(可分辨编码规则) 证书字节解析 mTLS(双向传输层安全协议认证) 身份.
+    /// Parses an mTLS identity from DER certificate bytes.
     ///
-    /// 参数 `certificate_der` 是客户端证书 DER(可分辨编码规则) 字节.
-    /// 参数 `now` 是校验时间.
-    /// 返回值是远程身份, 或者结构化证书错误.
+    /// The `certificate_der` parameter contains the client certificate DER bytes.
+    /// The `now` parameter is the validation time.
+    /// The return value is the remote identity, or a structured certificate error.
     pub fn identity_from_mtls_der(
         certificate_der: &[u8],
         now: OffsetDateTime,
@@ -198,13 +198,13 @@ impl AuthContext {
         Ok(identity)
     }
 
-    /// 从 trusted proxy(可信代理) 连接派生远程身份.
+    /// Derives a remote identity from a trusted-proxy connection.
     ///
-    /// 参数 `config` 是可信代理配置.
-    /// 参数 `remote_addr` 是实际连接来源 IP(网际协议地址).
-    /// 参数 `headers` 是代理传入的 HTTP(超文本传输协议) header(标头).
-    /// 参数 `now` 是创建时间.
-    /// 返回值是远程身份, 或者结构化信任边界错误.
+    /// The `config` parameter is the trusted-proxy configuration.
+    /// The `remote_addr` parameter is the actual connection source IP address.
+    /// The `headers` parameter contains the HTTP headers passed by the proxy.
+    /// The `now` parameter is the creation time.
+    /// The return value is the remote identity, or a structured trust-boundary error.
     pub fn identity_from_trusted_proxy(
         config: &TrustedProxyConfig,
         remote_addr: IpAddr,
