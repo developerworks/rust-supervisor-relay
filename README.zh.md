@@ -20,6 +20,14 @@ cargo run --manifest-path ~/rust-supervisor-relay/Cargo.toml -- --config ~/rust-
 
 `--check` 只校验 YAML(配置文件格式) 结构和安全策略. 去掉 `--check` 后, binary(二进制入口) 会绑定 registration socket(注册套接字) 和 `wss://` TCP(传输控制协议) listener(监听器), 并等待关闭信号. 真实运行需要提供 `tls.certificate_path`, `tls.private_key_path` 和 `tls.client_ca_path` 指向的证书文件.
 
+## 安装
+
+发布到 crates.io(Rust 包注册表) 后, 可以通过 cargo install(Cargo 安装命令)安装 relay(中继) binary(二进制程序).
+
+```bash
+cargo install rust-supervisor-relay
+```
+
 ## 验证
 
 ```bash
