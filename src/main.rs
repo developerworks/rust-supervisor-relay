@@ -28,9 +28,29 @@ use tokio_rustls::rustls::server::WebPkiClientVerifier;
 use tokio_rustls::rustls::{RootCertStore, ServerConfig};
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
+use tokio_tungstenite::tungstenite::handshake::server::{
+    Callback, ErrorResponse, Request, Response,
+};
 
 type SharedRegistry = Arc<Mutex<TargetProcessRegistry>>;
+
+struct RequestHeaderCapture<'headers> {
+    headers: &'headers mut HashMap<String, String>,
+}
+
+impl Callback for RequestHeaderCapture<'_> {
+    #[allow(clippy::result_large_err)]
+    fn on_request(self, request: &Request, response: Response) -> Result<Response, ErrorResponse> {
+        for (name, value) in request.headers() {
+            if let Ok(value) = value.to_str() {
+                self.headers
+                    .insert(name.as_str().to_owned(), value.to_owned());
+            }
+        }
+
+        Ok(response)
+    }
+}
 
 /// Starts the relay binary.
 ///
@@ -222,25 +242,22 @@ async fn handle_wss_connection(
         .and_then(|certificates| certificates.first())
         .map(|certificate| certificate.as_ref().to_vec());
     let mut request_headers = HashMap::new();
-    let websocket =
-        tokio_tungstenite::accept_hdr_async(tls_stream, |request: &Request, response: Response| {
-            for (name, value) in request.headers() {
-                if let Ok(value) = value.to_str() {
-                    request_headers.insert(name.as_str().to_owned(), value.to_owned());
-                }
-            }
-            Ok(response)
-        })
-        .await
-        .map_err(|error| {
-            RelayError::new(
-                "websocket_upgrade_failed",
-                "wss",
-                None,
-                format!("websocket upgrade failed: {error}"),
-                true,
-            )
-        })?;
+    let websocket = tokio_tungstenite::accept_hdr_async(
+        tls_stream,
+        RequestHeaderCapture {
+            headers: &mut request_headers,
+        },
+    )
+    .await
+    .map_err(|error| {
+        RelayError::new(
+            "websocket_upgrade_failed",
+            "wss",
+            None,
+            format!("websocket upgrade failed: {error}"),
+            true,
+        )
+    })?;
 
     let now = OffsetDateTime::now_utc();
     let identity = if trusted_proxy.enabled {

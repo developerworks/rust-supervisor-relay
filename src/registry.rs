@@ -166,16 +166,16 @@ impl TargetProcessRegistry {
         let owner_identity = owner_identity.into();
         let ipc_path_key = normalize_ipc_path_key(&request.ipc_path)?;
 
-        if let Some(existing) = self.registrations.get(&request.target_id) {
-            if existing.owner_identity != owner_identity {
-                return Err(RelayError::for_target(
-                    "target_id_owner_mismatch",
-                    "registration",
-                    request.target_id,
-                    "target id is owned by another supervisor identity",
-                    false,
-                ));
-            }
+        if let Some(existing) = self.registrations.get(&request.target_id)
+            && existing.owner_identity != owner_identity
+        {
+            return Err(RelayError::for_target(
+                "target_id_owner_mismatch",
+                "registration",
+                request.target_id,
+                "target id is owned by another supervisor identity",
+                false,
+            ));
         }
 
         if self.registrations.iter().any(|(target_id, registration)| {

@@ -3,6 +3,23 @@ name = "rust-supervisor-relay"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
+description = "Standalone relay server for rust-supervisor dashboard connections."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/developerworks/rust-supervisor-relay"
+readme = "README.md"
+keywords = ["supervisor", "relay", "server"]
+categories = ["command-line-utilities"]
+include = [
+    "Cargo.toml",
+    "Cargo.lock",
+    "README.md",
+    "README.zh.md",
+    "examples/config/dashboard-relay.yaml",
+    "fixtures/legacy_protocol/.gitkeep",
+    "manual/**",
+    "src/**",
+    "tests/**",
+]
 
 [dependencies]
 futures-util = "0.3"
