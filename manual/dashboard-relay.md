@@ -2,7 +2,7 @@
 
 ## 目录和职责
 
-`/Users/0x00/Documents/rust-supervisor-relay` 拥有 relay(中继) binary(二进制入口), relay config(中继配置), target registry(目标注册表), mTLS identity(双向传输层安全协议认证身份), trusted proxy(可信代理), session gating(会话门控), IPC client(进程间通信客户端), fan out(分发) 和 command audit(命令审计). 当前 `rust-supervisor` 仓库只拥有目标侧 IPC(进程间通信) 和共享契约, UI(用户界面) 只通过 `wss://` 消费 relay(中继) 消息.
+`~/rust-supervisor-relay` 拥有 relay(中继) binary(二进制入口), relay config(中继配置), target registry(目标注册表), mTLS identity(双向传输层安全协议认证身份), trusted proxy(可信代理), session gating(会话门控), IPC client(进程间通信客户端), fan out(分发) 和 command audit(命令审计). 当前 `rust-supervisor` 仓库只拥有目标侧 IPC(进程间通信) 和共享契约, UI(用户界面) 只通过 `wss://` 消费 relay(中继) 消息.
 
 ## 安全顺序
 
@@ -25,11 +25,11 @@ relay(中继) 对以下路径返回结构化错误: invalid public url(无效公
 ## 命令
 
 ```bash
-cargo run --manifest-path /Users/0x00/Documents/rust-supervisor-relay/Cargo.toml -- --config /Users/0x00/Documents/rust-supervisor-relay/examples/config/dashboard-relay.yaml --check
+cargo run --manifest-path ~/rust-supervisor-relay/Cargo.toml -- --config ~/rust-supervisor-relay/examples/config/dashboard-relay.yaml --check
 ```
 
 ```bash
-cargo test --manifest-path /Users/0x00/Documents/rust-supervisor-relay/Cargo.toml
+cargo test --manifest-path ~/rust-supervisor-relay/Cargo.toml
 ```
 
 这些命令只操作 relay(中继) 目录. 它们不会修改当前 `rust-supervisor` 仓库, 也不会修改 `rust-supervisor-ui` 目录.

@@ -1,6 +1,6 @@
 # rust-supervisor-relay
 
-`rust-supervisor-relay` 是 supervisor dashboard(监督器看板) 的独立 relay(中继) crate(包). 它只位于 `/Users/0x00/Documents/rust-supervisor-relay`, 不向 `/Users/0x00/Documents/rust-supervisor` 或 `/Users/0x00/Documents/rust-supervisor-ui` 写入实现文件.
+`rust-supervisor-relay` 是 supervisor dashboard(监督器看板) 的独立 relay(中继) crate(包). 它只位于 `~/rust-supervisor-relay`, 不向 `~/rust-supervisor` 或 `~/rust-supervisor-ui` 写入实现文件.
 
 ## 能力边界
 
@@ -15,7 +15,7 @@
 ## 运行
 
 ```bash
-cargo run --manifest-path /Users/0x00/Documents/rust-supervisor-relay/Cargo.toml -- --config /Users/0x00/Documents/rust-supervisor-relay/examples/config/dashboard-relay.yaml --check
+cargo run --manifest-path ~/rust-supervisor-relay/Cargo.toml -- --config ~/rust-supervisor-relay/examples/config/dashboard-relay.yaml --check
 ```
 
 `--check` 只校验 YAML(配置文件格式) 结构和安全策略. 去掉 `--check` 后, binary(二进制入口) 会绑定 registration socket(注册套接字) 和 `wss://` TCP(传输控制协议) listener(监听器), 并等待关闭信号. 真实运行需要提供 `tls.certificate_path`, `tls.private_key_path` 和 `tls.client_ca_path` 指向的证书文件.
@@ -23,8 +23,8 @@ cargo run --manifest-path /Users/0x00/Documents/rust-supervisor-relay/Cargo.toml
 ## 验证
 
 ```bash
-cargo fmt --manifest-path /Users/0x00/Documents/rust-supervisor-relay/Cargo.toml
-cargo test --manifest-path /Users/0x00/Documents/rust-supervisor-relay/Cargo.toml
+cargo fmt --manifest-path ~/rust-supervisor-relay/Cargo.toml
+cargo test --manifest-path ~/rust-supervisor-relay/Cargo.toml
 ```
 
 测试覆盖 registration(注册) 配置, 重复 target id(目标标识), 重复 IPC path(进程间通信路径), 无效租约, `ws://` 完整控制拒绝, trusted proxy(可信代理) 伪造身份拒绝, session gating(会话门控), 事件日志绑定顺序, sequence gap(序号缺口), reconnect timeout(重连超时), command requested_by(请求者) 派生, dangerous command(危险命令) 二次确认和 command audit(命令审计).

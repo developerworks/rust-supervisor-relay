@@ -1,6 +1,6 @@
 # ASSUMPTIONS(假设)
 
-本实现遵守 `specs/003-supervisor-dashboard` 中 relay(中继) 的目录边界. 当前轮只写入 `/Users/0x00/Documents/rust-supervisor-relay`.
+本实现遵守 `specs/003-supervisor-dashboard` 中 relay(中继) 的目录边界. 当前轮只写入 `~/rust-supervisor-relay`.
 
 第一版 relay(中继) 不引入持久化数据库. command audit(命令审计), event(事件), log(日志) 和 dropped count(丢弃数量) 先保留在内存结构和 `wss://` 消息流中.
 
